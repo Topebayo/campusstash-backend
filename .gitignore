@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.*
+campusstash.db
+*.db
+static/uploads/*
+!static/uploads/.gitkeep
+uvicorn_err.txt
+.pytest_cache/
