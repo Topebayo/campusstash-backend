@@ -4,8 +4,12 @@ import uuid
 import hashlib
 from typing import Dict, Any, Tuple
 import cloudinary.utils
-import boto3
-from botocore.config import Config
+try:
+    import boto3
+    from botocore.config import Config
+except ImportError:
+    boto3 = None
+    Config = None
 
 from app.core.config import settings
 
