@@ -33,6 +33,15 @@ class Settings(BaseSettings):
     AWS_REGION: str = "us-east-1"
     S3_BUCKET_NAME: str = "campusstash-uploads"
 
+    # Termii SMS & WhatsApp OTP
+    TERMII_API_KEY: str = ""
+    TERMII_SENDER_ID: str = "CampusStash"
+    TERMII_CHANNEL: str = "generic"
+    TERMII_BASE_URL: str = "https://api.ng.termii.com"
+    OTP_EXPIRE_MINUTES: int = 10
+    DEV_BYPASS_OTP: str = "123456"
+
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
 settings = Settings()

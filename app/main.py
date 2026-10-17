@@ -11,8 +11,16 @@ async def lifespan(app: FastAPI):
     try:
         from app.db.base import Base
         from app.db.session import engine
+        from sqlalchemy import text
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            try:
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_phone_verified BOOLEAN DEFAULT FALSE;'))
+            except Exception:
+                try:
+                    await conn.execute(text('ALTER TABLE user ADD COLUMN is_phone_verified BOOLEAN DEFAULT 0;'))
+                except Exception:
+                    pass
     except Exception as e:
         print(f"Database initialization note: {e}")
     yield

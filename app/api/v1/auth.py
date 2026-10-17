@@ -1,5 +1,6 @@
 import uuid
-from datetime import timedelta
+import secrets
+from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
@@ -13,8 +14,10 @@ from app.api.deps import get_db, get_current_user
 from app.core import security
 from app.core.config import settings
 from app.models.user import User, PublicProfile
+from app.models.phone_verification import PhoneVerification
 from app.schemas.token import TokenResponse, RefreshTokenRequest
-from app.schemas.user import UserRegister, UserRead, LoginRequest
+from app.schemas.user import UserRegister, UserRead, LoginRequest, SendOtpRequest, VerifyOtpRequest, OtpResponse
+from app.services.sms_service import normalize_phone, send_phone_otp
 
 router = APIRouter()
 
@@ -30,6 +33,144 @@ def build_token_response(user: User) -> TokenResponse:
         expires_in=expires_in,
         user=UserRead.model_validate(user)
     )
+
+
+
+@router.post("/phone/send-otp", response_model=OtpResponse)
+async def send_phone_verification_otp(
+    req: SendOtpRequest,
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """
+    Generate and dispatch a 6-digit OTP verification code via Termii SMS.
+    Normalizes Nigerian phone numbers (080... -> 23480...).
+    Rate limited to 1 code per 60 seconds per phone.
+    """
+    normalized = normalize_phone(req.phone)
+    if not normalized or len(normalized) < 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please provide a valid Nigerian or international phone number (e.g. 08012345678 or +234...)"
+        )
+
+    # 1. Check if phone is already registered and verified by another user
+    existing = await db.execute(select(User).where(User.phone == normalized))
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This phone number is already registered to an existing account. Please log in instead."
+        )
+
+    # 2. Anti-spam Rate limit: 60 seconds check
+    now_utc = datetime.now(timezone.utc)
+    recent_query = await db.execute(
+        select(PhoneVerification)
+        .where(PhoneVerification.phone == normalized)
+        .order_by(PhoneVerification.created_at.desc())
+    )
+    latest = recent_query.scalars().first()
+    if latest and (now_utc - latest.created_at).total_seconds() < 60:
+        remaining = int(60 - (now_utc - latest.created_at).total_seconds())
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Please wait {remaining} seconds before requesting another verification code."
+        )
+
+    # 3. Generate cryptographic 6-digit OTP
+    otp_code = f"{secrets.randbelow(900000) + 100000}"
+    expires_at = now_utc + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+
+    pv = PhoneVerification(
+        phone=normalized,
+        otp_code=otp_code,
+        expires_at=expires_at,
+        is_verified=False,
+        attempts=0
+    )
+    db.add(pv)
+    await db.commit()
+
+    # 4. Dispatch SMS via Termii
+    sms_res = await send_phone_otp(normalized, otp_code)
+
+    dev_code = None
+    if not settings.TERMII_API_KEY or not settings.TERMII_API_KEY.strip():
+        dev_code = otp_code
+
+    return OtpResponse(
+        status="success",
+        message=f"A 6-digit verification code has been sent to +{normalized}.",
+        phone=normalized,
+        dev_code=dev_code
+    )
+
+
+@router.post("/phone/verify-otp", response_model=OtpResponse)
+async def verify_phone_otp(
+    req: VerifyOtpRequest,
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """
+    Verify the 6-digit OTP code sent to user's phone number.
+    Marks phone number as verified for upcoming registration.
+    """
+    normalized = normalize_phone(req.phone)
+    if not normalized:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid phone number."
+        )
+
+    now_utc = datetime.now(timezone.utc)
+    query = await db.execute(
+        select(PhoneVerification)
+        .where(PhoneVerification.phone == normalized)
+        .order_by(PhoneVerification.created_at.desc())
+    )
+    pv = query.scalars().first()
+
+    if not pv:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No verification code was requested for this phone number."
+        )
+
+    if pv.expires_at < now_utc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification code has expired. Please request a new code."
+        )
+
+    if pv.attempts >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Too many incorrect attempts. Please request a new verification code."
+        )
+
+    submitted_code = req.otp_code.strip()
+    is_valid = (submitted_code == pv.otp_code) or (
+        bool(settings.DEV_BYPASS_OTP) and submitted_code == settings.DEV_BYPASS_OTP
+    )
+
+    if not is_valid:
+        pv.attempts += 1
+        await db.commit()
+        remaining = max(0, 5 - pv.attempts)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Incorrect verification code. {remaining} attempts remaining."
+        )
+
+    pv.is_verified = True
+    pv.verified_at = now_utc
+    await db.commit()
+
+    return OtpResponse(
+        status="success",
+        message="Phone number verified successfully!",
+        phone=normalized
+    )
+
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(
@@ -87,6 +228,7 @@ async def register(
         hashed_password=hashed_password,
         name=name,
         phone=phone_cleaned,
+        is_phone_verified=True,
     )
     profile = PublicProfile(
         burner_handle=handle,
