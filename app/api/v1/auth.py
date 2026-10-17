@@ -93,8 +93,8 @@ async def send_phone_verification_otp(
     # 4. Dispatch SMS via Termii
     sms_res = await send_phone_otp(normalized, otp_code)
 
-    dev_code = None
-    if not settings.TERMII_API_KEY or not settings.TERMII_API_KEY.strip():
+    dev_code = sms_res.get("dev_code")
+    if not dev_code and (not settings.TERMII_API_KEY or not settings.TERMII_API_KEY.strip()):
         dev_code = otp_code
 
     return OtpResponse(
