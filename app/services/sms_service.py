@@ -72,7 +72,7 @@ async def send_phone_otp(phone: str, otp_code: str) -> dict:
         }
 
     url = f"{settings.TERMII_BASE_URL.rstrip('/')}/api/sms/send"
-    sms_text = f"Your CampusStash code is {otp_code}. Valid for {settings.OTP_EXPIRE_MINUTES} minutes."
+    sms_text = f"Your CampusStash verification code is {otp_code}. This code expires in 10 minutes. Do not share with anyone."
     api_key = settings.TERMII_API_KEY.strip()
 
     try:
