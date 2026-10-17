@@ -35,8 +35,8 @@ class Settings(BaseSettings):
 
     # Termii SMS & WhatsApp OTP
     TERMII_API_KEY: str = ""
-    TERMII_SENDER_ID: str = "CampusStash"
-    TERMII_CHANNEL: str = "generic"
+    TERMII_SENDER_ID: str = "Termii"
+    TERMII_CHANNEL: str = "dnd"
     TERMII_BASE_URL: str = "https://api.ng.termii.com"
     OTP_EXPIRE_MINUTES: int = 10
     DEV_BYPASS_OTP: str = "123456"

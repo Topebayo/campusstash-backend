@@ -53,13 +53,17 @@ async def send_phone_otp(phone: str, otp_code: str) -> dict:
 
     # Production Termii API Dispatch
     url = f"{settings.TERMII_BASE_URL.rstrip('/')}/api/sms/send"
+    sender_id = settings.TERMII_SENDER_ID or "Termii"
+    sms_text = f"Your CampusStash verification code is {otp_code}. Valid for {settings.OTP_EXPIRE_MINUTES} minutes. Do not share this code."
+
+    # 1. Attempt with primary channel and sender_id
     payload = {
         "to": normalized,
-        "from": settings.TERMII_SENDER_ID,
-        "sms": f"Your CampusStash verification code is {otp_code}. Valid for {settings.OTP_EXPIRE_MINUTES} minutes. Do not share this code with anyone.",
+        "from": sender_id,
+        "sms": sms_text,
         "type": "plain",
-        "channel": settings.TERMII_CHANNEL or "generic",
-        "api_key": settings.TERMII_API_KEY
+        "channel": settings.TERMII_CHANNEL or "dnd",
+        "api_key": settings.TERMII_API_KEY.strip()
     }
 
     try:
@@ -67,20 +71,20 @@ async def send_phone_otp(phone: str, otp_code: str) -> dict:
             resp = await client.post(url, json=payload)
             data = resp.json() if resp.status_code == 200 else {}
             
-            # If generic channel fails or DND needed, Termii returns message response
             if resp.status_code == 200 and data.get("message") == "Successfully Sent":
                 return {"success": True, "provider": "termii", "data": data}
-            else:
-                logger.warning(f"Termii send returned non-200: {resp.status_code} - {resp.text}")
-                # Fallback to dnd channel if generic failed
-                if payload.get("channel") != "dnd":
+            
+            # If rejected because sender_id is unapproved or channel issue, fallback to 'dnd' with 'Termii' or 'N-Alert'
+            for fallback_sender in ["Termii", "N-Alert"]:
+                if payload.get("from") != fallback_sender or payload.get("channel") != "dnd":
+                    payload["from"] = fallback_sender
                     payload["channel"] = "dnd"
-                    resp2 = await client.post(url, json=payload)
-                    if resp2.status_code == 200:
-                        return {"success": True, "provider": "termii_dnd", "data": resp2.json()}
+                    resp_fallback = await client.post(url, json=payload)
+                    if resp_fallback.status_code == 200 and resp_fallback.json().get("message") == "Successfully Sent":
+                        return {"success": True, "provider": "termii_fallback", "data": resp_fallback.json()}
 
-                return {"success": False, "error": resp.text, "status_code": resp.status_code}
+            logger.warning(f"Termii send returned non-200: {resp.status_code} - {resp.text}")
+            return {"success": False, "error": resp.text, "status_code": resp.status_code}
     except Exception as e:
         logger.error(f"Failed to contact Termii API: {e}")
-        # Ensure user can still test in fallback
         return {"success": False, "error": str(e), "dev_code": otp_code}
