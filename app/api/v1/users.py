@@ -6,7 +6,8 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_db, get_current_active_user
 from app.models.user import User, PublicProfile
-from app.schemas.user import UserRead, UserUpdate
+from app.core import security
+from app.schemas.user import UserRead, UserUpdate, ChangePasswordRequest
 
 router = APIRouter()
 
@@ -56,3 +57,18 @@ async def update_user_me(
     await db.commit()
     await db.refresh(current_user)
     return current_user
+
+
+@router.post("/me/change-password")
+async def change_password(
+    payload: ChangePasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    if not security.verify_password(payload.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if len(payload.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+    current_user.hashed_password = security.get_password_hash(payload.new_password)
+    await db.commit()
+    return {"message": "Password updated successfully"}
