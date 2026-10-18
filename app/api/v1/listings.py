@@ -1,5 +1,6 @@
 import os
 import uuid
+import base64
 from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Body, status, File, UploadFile, Form
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -219,16 +220,13 @@ async def create_listing(
         category = str(form.get("category", "Other"))
         primary_image_url = form.get("image_url") or None
         
-        # Check uploaded file if any
+        # Check uploaded file if any - store persistently as base64 data URL to survive Render spin-down
         uploaded_file = form.get("image")
-        if uploaded_file and hasattr(uploaded_file, "filename") and uploaded_file.filename:
+        if not primary_image_url and uploaded_file and hasattr(uploaded_file, "filename") and uploaded_file.filename:
             contents = await uploaded_file.read()
-            ext = os.path.splitext(uploaded_file.filename)[1]
-            safe_filename = f"{uuid.uuid4()}{ext}"
-            filepath = os.path.join("static", "uploads", safe_filename)
-            with open(filepath, "wb") as buffer:
-                buffer.write(contents)
-            primary_image_url = f"/static/uploads/{safe_filename}"
+            mime = getattr(uploaded_file, "content_type", None) or "image/jpeg"
+            b64_str = base64.b64encode(contents).decode("utf-8")
+            primary_image_url = f"data:{mime};base64,{b64_str}"
 
     if not title or len(title.strip()) < 3:
         raise HTTPException(status_code=400, detail="Title must be at least 3 characters")
