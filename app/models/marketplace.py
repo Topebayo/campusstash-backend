@@ -20,7 +20,7 @@ class Listing(Base):
     price: Mapped[int] = mapped_column(BigInteger, nullable=False)
     category: Mapped[str] = mapped_column(String(50), default="Other", index=True, nullable=False)
     status: Mapped[str] = mapped_column(String(50), default="active", index=True, nullable=False)
-    image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -77,7 +77,7 @@ class ListingImage(Base):
         index=True, 
         nullable=False
     )
-    image_url: Mapped[str] = mapped_column(String(1024), nullable=False)
+    image_url: Mapped[str] = mapped_column(Text, nullable=False)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 

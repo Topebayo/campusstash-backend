@@ -21,6 +21,11 @@ async def lifespan(app: FastAPI):
                     await conn.execute(text('ALTER TABLE user ADD COLUMN is_phone_verified BOOLEAN DEFAULT 0;'))
                 except Exception:
                     pass
+            try:
+                await conn.execute(text('ALTER TABLE listing ALTER COLUMN image_url TYPE TEXT;'))
+                await conn.execute(text('ALTER TABLE listing_image ALTER COLUMN image_url TYPE TEXT;'))
+            except Exception:
+                pass
     except Exception as e:
         print(f"Database initialization note: {e}")
     yield

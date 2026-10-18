@@ -217,6 +217,7 @@ async def create_listing(
             raise HTTPException(status_code=400, detail="Price is required")
         price = int(price_raw)
         category = str(form.get("category", "Other"))
+        primary_image_url = form.get("image_url") or None
         
         # Check uploaded file if any
         uploaded_file = form.get("image")
