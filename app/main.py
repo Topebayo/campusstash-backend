@@ -28,7 +28,14 @@ async def lifespan(app: FastAPI):
         from app.db.session import engine
         from sqlalchemy import text
         async with engine.begin() as conn:
+            # Enable pgcrypto for password/PIN hashing in Postgres / Supabase
+            try:
+                await conn.execute(text('CREATE EXTENSION IF NOT EXISTS pgcrypto;'))
+            except Exception:
+                pass
+
             await conn.run_sync(Base.metadata.create_all)
+
             try:
                 await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_phone_verified BOOLEAN DEFAULT FALSE;'))
             except Exception:
