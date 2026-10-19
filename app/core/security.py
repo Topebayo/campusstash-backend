@@ -1,12 +1,42 @@
+﻿import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from passlib.context import CryptContext
 from jose import jwt, JWTError, ExpiredSignatureError
+from fastapi import HTTPException, status
 
 from app.core.config import settings
 
 # CryptContext configured with bcrypt algorithm
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+COMMON_WEAK_PASSWORDS = {
+    "password", "password123", "12345678", "123456789", "1234567890",
+    "qwertyuiop", "admin123", "campusstash", "welcome1", "student123"
+}
+
+def validate_password_strength(password: str) -> None:
+    """
+    Production-grade password validation:
+    - Minimum length of 8 characters.
+    - Maximum length of 72 characters (Bcrypt safe boundary).
+    - Checks for common trivial passwords.
+    """
+    if not password or len(password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 8 characters long."
+        )
+    if len(password) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password cannot exceed 72 characters."
+        )
+    if password.lower() in COMMON_WEAK_PASSWORDS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password is too common or easily guessable. Please choose a stronger password."
+        )
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
@@ -15,18 +45,22 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     if not plain_password or not hashed_password:
         return False
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        return False
 
 def get_password_hash(password: str) -> str:
     """
     Generate a secure bcrypt password hash.
     """
+    validate_password_strength(password)
     return pwd_context.hash(password)
 
 def create_access_token(
     subject: str | Any, 
-    expires_delta: timedelta | None = None,
-    extra_claims: Dict[str, Any] | None = None
+    expires_delta: Optional[timedelta] = None,
+    extra_claims: Optional[Dict[str, Any]] = None
 ) -> str:
     """
     Create a signed JWT access token.
@@ -52,7 +86,7 @@ def create_access_token(
 
 def create_refresh_token(
     subject: str | Any, 
-    expires_delta: timedelta | None = None
+    expires_delta: Optional[timedelta] = None
 ) -> str:
     """
     Create a signed JWT refresh token for session renewals.

@@ -1,4 +1,4 @@
-import os
+﻿import os
 import uuid
 import base64
 from typing import Any, List, Optional
@@ -23,6 +23,7 @@ from app.schemas.marketplace import (
     UploadUrlResponse
 )
 from app.services.storage_service import generate_signed_upload_url
+from app.core.limiter import limiter
 
 router = APIRouter()
 
@@ -147,7 +148,7 @@ async def list_listings(
     if base_conditions:
         query = query.where(*base_conditions)
 
-        # Sorting
+    # Sorting
     if sort == "price_asc":
         query = query.order_by(Listing.price.asc(), Listing.id.desc())
     elif sort == "price_desc":
@@ -173,6 +174,7 @@ async def list_listings(
 
 @router.post("", response_model=ListingRead, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=ListingRead, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
 async def create_listing(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -180,7 +182,8 @@ async def create_listing(
 ) -> Any:
     """
     Create a new marketplace listing. Requires authentication.
-    Supports both standard JSON payload (`ListingCreate`) and multipart Form data.
+    Supports both standard JSON payload (ListingCreate) and multipart Form data.
+    Rate limited to 10 listings per minute.
     """
     content_type = request.headers.get("content-type", "")
     
@@ -252,18 +255,18 @@ async def create_listing(
         )
         db.add(img_rec)
 
-    # Add additional image records if given
-    for img_url in additional_images:
-        if img_url != primary_image_url:
+    # Add any additional secondary images
+    for add_url in additional_images:
+        if add_url and add_url != primary_image_url:
             db.add(ListingImage(
                 listing_id=listing.id,
-                image_url=img_url,
+                image_url=add_url,
                 is_primary=False
             ))
 
     await db.commit()
-    
-    # Reload listing with full relationships
+
+    # Re-fetch listing with relationships loaded
     result = await db.execute(
         select(Listing)
         .options(
@@ -277,7 +280,9 @@ async def create_listing(
 
 
 @router.post("/{listing_id}/upload-url", response_model=UploadUrlResponse)
+@limiter.limit("20/minute")
 async def generate_upload_url(
+    request: Request,
     listing_id: uuid.UUID,
     payload: UploadUrlRequest,
     db: AsyncSession = Depends(get_db),
@@ -286,7 +291,7 @@ async def generate_upload_url(
     """
     Generate a signed direct upload URL (for Cloudinary or AWS S3)
     allowing the frontend to upload product images directly to cloud storage.
-    Automatically prepares the image record.
+    Strict Row-Level Security: Only the listing owner can generate upload URLs.
     """
     # Verify listing exists and user is owner
     result = await db.execute(
@@ -332,7 +337,9 @@ async def generate_upload_url(
 
 
 @router.post("/{listing_id}/images", response_model=ListingRead)
+@limiter.limit("20/minute")
 async def add_listing_image(
+    request: Request,
     listing_id: uuid.UUID,
     image_in: ListingImageCreate,
     db: AsyncSession = Depends(get_db),
@@ -340,6 +347,7 @@ async def add_listing_image(
 ) -> Any:
     """
     Attach an uploaded image URL directly to a listing.
+    Strict Row-Level Security: Only the listing owner can attach images.
     """
     result = await db.execute(
         select(Listing)
@@ -416,6 +424,7 @@ async def read_listing(
 
 
 @router.patch("/{listing_id}/status", response_model=ListingRead)
+@limiter.limit("15/minute")
 async def toggle_listing_status(
     listing_id: uuid.UUID,
     request: Request,
@@ -424,6 +433,7 @@ async def toggle_listing_status(
 ) -> Any:
     """
     Update listing status (active, sold, etc.).
+    Strict Row-Level Security: Only the listing seller can modify status.
     """
     result = await db.execute(
         select(Listing)
@@ -461,13 +471,16 @@ async def toggle_listing_status(
 
 
 @router.delete("/{listing_id}")
+@limiter.limit("15/minute")
 async def delete_listing(
+    request: Request,
     listing_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
     """
     Delete a listing. Cascades to images, conversations, and messages.
+    Strict Row-Level Security: Only the listing seller can delete it.
     """
     result = await db.execute(select(Listing).where(Listing.id == listing_id))
     listing = result.scalar_one_or_none()
@@ -483,7 +496,9 @@ async def delete_listing(
 
 @router.put("/{listing_id}", response_model=ListingRead)
 @router.patch("/{listing_id}", response_model=ListingRead)
+@limiter.limit("15/minute")
 async def update_listing(
+    request: Request,
     listing_id: uuid.UUID,
     listing_in: ListingUpdate,
     db: AsyncSession = Depends(get_db),
@@ -491,6 +506,7 @@ async def update_listing(
 ) -> Any:
     """
     Update listing details (title, description, price, category, image_url, status).
+    Strict Row-Level Security: Only the listing seller can update details.
     """
     result = await db.execute(
         select(Listing)

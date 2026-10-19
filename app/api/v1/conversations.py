@@ -1,8 +1,8 @@
-import uuid
+﻿import uuid
 from datetime import datetime
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, and_, func, update
 from sqlalchemy.orm import selectinload
@@ -19,6 +19,7 @@ from app.schemas.chat import (
     ConversationRead,
     ParticipantRead
 )
+from app.core.limiter import limiter
 
 router = APIRouter()
 
@@ -45,17 +46,24 @@ def format_conversation_read(conv: Conversation, current_user_id: uuid.UUID, unr
     participant = None
     if other_user:
         handle = None
-        if hasattr(other_user, "profile") and other_user.profile:
+        avatar = None
+        if other_user.profile:
             handle = other_user.profile.burner_handle
+            avatar = other_user.profile.avatar_slug
         participant = ParticipantRead(
             id=other_user.id,
-            name=other_user.name,
             email=other_user.email,
-            burner_handle=handle
+            name=other_user.name,
+            burner_handle=handle,
+            avatar_slug=avatar
         )
 
-    last_msg = conv.messages[-1].text if conv.messages else None
-    last_time = conv.messages[-1].timestamp if conv.messages else conv.created_at
+    last_msg = None
+    last_time = conv.updated_at or conv.created_at
+    if conv.messages:
+        sorted_msgs = sorted(conv.messages, key=lambda m: m.timestamp)
+        last_msg = sorted_msgs[-1].text
+        last_time = sorted_msgs[-1].timestamp
 
     return ConversationRead(
         id=conv.id,
@@ -73,7 +81,9 @@ def format_conversation_read(conv: Conversation, current_user_id: uuid.UUID, unr
 
 
 @router.get("/{conversation_id}/messages", response_model=PaginatedMessagesResponse)
+@limiter.limit("60/minute")
 async def get_conversation_messages(
+    request: Request,
     conversation_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -86,7 +96,7 @@ async def get_conversation_messages(
     Verifies caller is an active participant in the conversation.
     Marks retrieved unread messages as read.
     """
-    # 1. Verify conversation exists and user is participant
+    # 1. Row-Level Security: Verify conversation exists and user is participant
     conv_res = await db.execute(
         select(Conversation).where(Conversation.id == conversation_id)
     )
@@ -97,7 +107,7 @@ async def get_conversation_messages(
     if current_user.id not in (conversation.buyer_id, conversation.seller_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Not authorized to access messages in this conversation"
+            detail="Forbidden: Not authorized to access messages in this conversation"
         )
 
     # 2. Count total messages
@@ -147,7 +157,9 @@ async def get_conversation_messages(
 
 @router.post("", response_model=ConversationRead, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=ConversationRead, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")
 async def create_or_get_conversation(
+    request: Request,
     conv_in: ConversationCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -222,6 +234,7 @@ async def list_conversations(
 ) -> Any:
     """
     List all active 1-on-1 conversations for the current user (as buyer or seller).
+    Strict Row-Level Security: Only returns conversations involving current_user.
     """
     result = await db.execute(
         select(Conversation)
@@ -257,6 +270,7 @@ async def get_conversation(
 ) -> Any:
     """
     Get conversation details by ID.
+    Strict Row-Level Security: Non-participants receive 403 Forbidden.
     """
     result = await db.execute(
         select(Conversation)
@@ -272,7 +286,7 @@ async def get_conversation(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     if current_user.id not in (conv.buyer_id, conv.seller_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden: You are not a participant in this conversation")
 
     unread = sum(1 for m in conv.messages if m.sender_id != current_user.id and not m.is_read)
     return format_conversation_read(conv, current_user.id, unread_count=unread)

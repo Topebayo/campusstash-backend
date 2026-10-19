@@ -1,8 +1,13 @@
-import os
+﻿import os
+import logging
+from typing import List
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger("campusstash.security")
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "CampusStash"
+    ENVIRONMENT: str = "development"  # "development", "staging", "production"
     
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./campusstash.db"
@@ -10,13 +15,14 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
     
-    # Security
+    # Security & Tokens
     JWT_SECRET: str = "super_secret_jwt_key_change_in_production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30             # 30 days
+    ALLOWED_ORIGINS: str = ""                       # Comma-separated extra origins
     
-    # Third Party
+    # Third Party Secrets (Saved in server-side .env, NEVER exposed to client)
     PAYSTACK_SECRET: str = "sk_test_12345"
 
     # Cloud Storage & Uploads
@@ -41,7 +47,31 @@ class Settings(BaseSettings):
     OTP_EXPIRE_MINUTES: int = 10
     DEV_BYPASS_OTP: str = "123456"
 
-
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
+    def get_cors_origins(self) -> List[str]:
+        """
+        Generate strict CORS allowed origins whitelist.
+        Disallows wildcards (*) when credentials are used.
+        """
+        origins = [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "capacitor://localhost",
+            "http://localhost",
+            "https://campusstash-frontend.onrender.com",
+            "https://campusstash.onrender.com",
+        ]
+        if self.ALLOWED_ORIGINS:
+            for org in self.ALLOWED_ORIGINS.split(","):
+                org_clean = org.strip().rstrip("/")
+                if org_clean and org_clean not in origins:
+                    origins.append(org_clean)
+        return origins
+
 settings = Settings()
+
+if settings.ENVIRONMENT == "production" and "super_secret_jwt_key" in settings.JWT_SECRET:
+    logger.warning("CRITICAL SECURITY ALERT: Running in production with default JWT_SECRET! Set JWT_SECRET in server environment.")

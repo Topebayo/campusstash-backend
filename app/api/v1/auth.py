@@ -1,4 +1,4 @@
-import uuid
+﻿import uuid
 import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
@@ -13,6 +13,7 @@ from jose import ExpiredSignatureError, JWTError
 from app.api.deps import get_db, get_current_user
 from app.core import security
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.models.user import User, PublicProfile
 from app.models.phone_verification import PhoneVerification
 from app.schemas.token import TokenResponse, RefreshTokenRequest
@@ -35,16 +36,17 @@ def build_token_response(user: User) -> TokenResponse:
     )
 
 
-
 @router.post("/phone/send-otp", response_model=OtpResponse)
+@limiter.limit("3/minute")
 async def send_phone_verification_otp(
+    request: Request,
     req: SendOtpRequest,
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """
     Generate and dispatch a 6-digit OTP verification code via Termii SMS.
     Normalizes Nigerian phone numbers (080... -> 23480...).
-    Rate limited to 1 code per 60 seconds per phone.
+    Rate limited to 3 requests per minute per IP.
     """
     normalized = normalize_phone(req.phone)
     if not normalized or len(normalized) < 10:
@@ -106,13 +108,15 @@ async def send_phone_verification_otp(
 
 
 @router.post("/phone/verify-otp", response_model=OtpResponse)
+@limiter.limit("5/minute")
 async def verify_phone_otp(
+    request: Request,
     req: VerifyOtpRequest,
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """
     Verify the 6-digit OTP code sent to user's phone number.
-    Marks phone number as verified for upcoming registration.
+    Rate limited to 5 verification attempts per minute.
     """
     normalized = normalize_phone(req.phone)
     if not normalized:
@@ -173,13 +177,15 @@ async def verify_phone_otp(
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
 async def register(
+    request: Request,
     user_in: UserRegister,
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """
     Register a new user with email, password, and optional name/profile.
-    Returns standard JSON token response with access and refresh tokens.
+    Rate limited to 5 registrations per minute per IP.
     """
     # 1. Check if email already registered
     res_email = await db.execute(select(User).where(User.email == user_in.email))
@@ -214,7 +220,7 @@ async def register(
             detail="Burner handle already taken. Please choose another."
         )
 
-    # 4. Hash password with Passlib Bcrypt
+    # 4. Hash password with Passlib Bcrypt (Validates strength: min 8, max 72 chars)
     hashed_password = security.get_password_hash(user_in.password)
 
     # 5. Determine display name
@@ -247,14 +253,14 @@ async def register(
 
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit("5/minute")
 async def login(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """
     Authenticate user using email and password.
-    Supports both standard JSON payload (`{"email": "...", "password": "..."}`)
-    and form data (`username`/`email`, `password`).
+    Rate limited to 5 attempts per minute per IP.
     """
     email: Optional[str] = None
     password: Optional[str] = None
@@ -302,13 +308,15 @@ async def login(
 
 
 @router.post("/login/access-token", response_model=TokenResponse)
+@limiter.limit("5/minute")
 async def login_access_token_form(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     form_data: OAuth2PasswordRequestForm = Depends()
 ) -> Any:
     """
     OAuth2 standard password request form endpoint (email sent in 'username' field).
-    Provides compatibility for Swagger UI and form-based clients.
+    Rate limited to 5 attempts per minute per IP.
     """
     result = await db.execute(
         select(User).options(selectinload(User.profile)).where(User.email == form_data.username.strip())
@@ -330,13 +338,14 @@ async def login_access_token_form(
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("15/minute")
 async def refresh_token(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """
     Renew expired access token using a valid refresh token.
-    Accepts JSON body: `{"refresh_token": "..."}` or Authorization Bearer header.
+    Rate limited to 15 refreshes per minute per IP.
     """
     token_str: Optional[str] = None
 
