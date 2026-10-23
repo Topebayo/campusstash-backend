@@ -43,7 +43,7 @@ class ListingCreate(BaseModel):
         if isinstance(values, dict):
             p = values.get("price")
             pk = values.get("price_kobo")
-            val = p if p is not None else pk
+            val = pk if pk is not None else p
             if val is None:
                 raise ValueError("Either price or price_kobo must be provided.")
             try:
@@ -70,7 +70,7 @@ class ListingUpdate(BaseModel):
         if isinstance(values, dict):
             p = values.get("price")
             pk = values.get("price_kobo")
-            val = p if p is not None else pk
+            val = pk if pk is not None else p
             if val is not None:
                 try:
                     num = float(val)

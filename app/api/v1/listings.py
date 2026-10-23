@@ -376,8 +376,16 @@ async def add_listing_image(
     )
     db.add(new_img)
     await db.commit()
-    await db.refresh(listing)
-    return format_listing_read(listing)
+    refetch_res = await db.execute(
+        select(Listing)
+        .options(
+            selectinload(Listing.seller).selectinload(User.profile),
+            selectinload(Listing.images)
+        )
+        .where(Listing.id == listing_id)
+    )
+    full_listing = refetch_res.scalar_one()
+    return format_listing_read(full_listing)
 
 
 @router.get("/me", response_model=List[ListingRead])
@@ -466,8 +474,16 @@ async def toggle_listing_status(
         listing.status = "sold" if listing.status == "active" else "active"
 
     await db.commit()
-    await db.refresh(listing)
-    return format_listing_read(listing)
+    refetch_res = await db.execute(
+        select(Listing)
+        .options(
+            selectinload(Listing.seller).selectinload(User.profile),
+            selectinload(Listing.images)
+        )
+        .where(Listing.id == listing_id)
+    )
+    full_listing = refetch_res.scalar_one()
+    return format_listing_read(full_listing)
 
 
 @router.delete("/{listing_id}")
@@ -526,7 +542,9 @@ async def update_listing(
         listing.title = listing_in.title.strip()
     if listing_in.description is not None:
         listing.description = listing_in.description.strip()
-    if listing_in.price is not None and listing_in.price >= 0:
+    if listing_in.price_kobo is not None:
+        listing.price = listing_in.price_kobo
+    elif listing_in.price is not None and listing_in.price >= 0:
         listing.price = listing_in.price
     if listing_in.category:
         listing.category = listing_in.category
@@ -536,5 +554,13 @@ async def update_listing(
         listing.status = listing_in.status
 
     await db.commit()
-    await db.refresh(listing)
-    return format_listing_read(listing)
+    refetch_res = await db.execute(
+        select(Listing)
+        .options(
+            selectinload(Listing.seller).selectinload(User.profile),
+            selectinload(Listing.images)
+        )
+        .where(Listing.id == listing_id)
+    )
+    full_listing = refetch_res.scalar_one()
+    return format_listing_read(full_listing)

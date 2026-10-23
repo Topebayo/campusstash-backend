@@ -1,7 +1,7 @@
 ﻿from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_db, get_current_active_user
@@ -31,9 +31,12 @@ async def update_user_me(
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
     """
-    Update phone or burner handle for the current user.
+    Update name, phone or burner handle for the current user.
     Rate limited to 15 updates per minute.
     """
+    if user_in.name is not None:
+        current_user.name = user_in.name.strip() or None
+
     if user_in.phone is not None:
         phone_cleaned = user_in.phone.strip()
         if not phone_cleaned:
@@ -46,15 +49,18 @@ async def update_user_me(
         current_user.phone = phone_cleaned
         
     if user_in.burner_handle is not None:
-        handle_cleaned = user_in.burner_handle.strip()
+        handle_cleaned = user_in.burner_handle.strip().lstrip('@')
         if not handle_cleaned:
-            raise HTTPException(status_code=400, detail="Burner handle cannot be empty")
-        # Check uniqueness
+            raise HTTPException(status_code=400, detail="Username/handle cannot be empty")
+        # Check uniqueness case-insensitively
         result = await db.execute(
-            select(PublicProfile).where(PublicProfile.burner_handle == handle_cleaned, PublicProfile.user_id != current_user.id)
+            select(PublicProfile).where(
+                func.lower(PublicProfile.burner_handle) == handle_cleaned.lower(),
+                PublicProfile.user_id != current_user.id
+            )
         )
         if result.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="Burner handle already taken")
+            raise HTTPException(status_code=400, detail="Username is already taken. Please choose another.")
             
         if current_user.profile:
             current_user.profile.burner_handle = handle_cleaned
@@ -66,8 +72,10 @@ async def update_user_me(
             db.add(profile)
             
     await db.commit()
-    await db.refresh(current_user)
-    return current_user
+    refetch = await db.execute(
+        select(User).options(selectinload(User.profile)).where(User.id == current_user.id)
+    )
+    return refetch.scalar_one()
 
 
 @router.post("/me/change-password")
