@@ -211,6 +211,17 @@ async def create_or_get_conversation(
     await db.commit()
     await db.refresh(new_conv)
 
+    # Optional initial message
+    if conv_in.initial_message and conv_in.initial_message.strip():
+        first_msg = Message(
+            conversation_id=new_conv.id,
+            sender_id=current_user.id,
+            text=conv_in.initial_message.strip(),
+            is_read=False
+        )
+        db.add(first_msg)
+        await db.commit()
+
     # Reload relationships
     res_loaded = await db.execute(
         select(Conversation)

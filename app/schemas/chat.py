@@ -28,6 +28,7 @@ class PaginatedMessagesResponse(BaseModel):
 
 class ConversationCreate(BaseModel):
     listing_id: uuid.UUID
+    initial_message: Optional[str] = None
 
 class ParticipantRead(BaseModel):
     id: uuid.UUID
