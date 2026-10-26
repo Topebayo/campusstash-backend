@@ -28,6 +28,10 @@ async def lifespan(app: FastAPI):
         from app.db.session import engine
         from sqlalchemy import text
         async with engine.begin() as conn:
+            try:
+                await conn.execute(text("SET lock_timeout = '2s';"))
+            except Exception:
+                pass
             # Enable pgcrypto for password/PIN hashing in Postgres / Supabase
             try:
                 await conn.execute(text('CREATE EXTENSION IF NOT EXISTS pgcrypto;'))
