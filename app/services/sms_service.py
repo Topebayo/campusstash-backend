@@ -72,7 +72,7 @@ async def send_phone_otp(phone: str, otp_code: str) -> dict:
         }
 
     url = f"{settings.TERMII_BASE_URL.rstrip('/')}/api/sms/send"
-    sms_text = f"Your CampusStash verification code is {otp_code}. This code expires in 10 minutes. Do not share with anyone."
+    sms_text = f"Your NEXISFLOW verification code is {otp_code}. Use this code to complete your NEXISFLOW account verification. Valid for 10 minutes. Do not share this code with anyone."
     api_key = settings.TERMII_API_KEY.strip()
 
     try:
@@ -80,19 +80,20 @@ async def send_phone_otp(phone: str, otp_code: str) -> dict:
             # 1. Discover active sender ID from account
             approved_sender = await get_termii_approved_sender_id(api_key, client)
             
-            # Priority list of sender IDs to try
-            candidate_senders = []
-            if settings.TERMII_SENDER_ID and settings.TERMII_SENDER_ID not in ["CampusStash", approved_sender]:
+            # Priority list of sender IDs to try (approved 'OE Alert' via 'dnd' first)
+            candidate_senders = ["OE Alert"]
+            if settings.TERMII_SENDER_ID and settings.TERMII_SENDER_ID not in candidate_senders:
                 candidate_senders.append(settings.TERMII_SENDER_ID)
-            if approved_sender:
+            if approved_sender and approved_sender not in candidate_senders:
                 candidate_senders.append(approved_sender)
             for default_s in ["talert", "Termii", "N-Alert"]:
                 if default_s not in candidate_senders:
                     candidate_senders.append(default_s)
 
-            # Try candidate sender IDs across channels (generic, then dnd)
+            # Try approved channel 'dnd' first, then fallback to 'generic'
+            channels_to_try = ["dnd", "generic"]
             for s_id in candidate_senders:
-                for channel in ["generic", "dnd"]:
+                for channel in channels_to_try:
                     payload = {
                         "to": normalized,
                         "from": s_id,

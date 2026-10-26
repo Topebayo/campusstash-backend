@@ -41,7 +41,7 @@ class Settings(BaseSettings):
 
     # Termii SMS & WhatsApp OTP
     TERMII_API_KEY: str = ""
-    TERMII_SENDER_ID: str = "Termii"
+    TERMII_SENDER_ID: str = "OE Alert"
     TERMII_CHANNEL: str = "dnd"
     TERMII_BASE_URL: str = "https://api.ng.termii.com"
     OTP_EXPIRE_MINUTES: int = 10
