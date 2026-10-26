@@ -223,13 +223,24 @@ async def create_listing(
         category = str(form.get("category", "Other"))
         primary_image_url = form.get("image_url") or None
         
-        # Check uploaded file if any - store persistently as base64 data URL to survive Render spin-down
+        # Check primary uploaded file if any - store persistently as base64 data URL to survive Render spin-down
         uploaded_file = form.get("image")
         if not primary_image_url and uploaded_file and hasattr(uploaded_file, "filename") and uploaded_file.filename:
             contents = await uploaded_file.read()
             mime = getattr(uploaded_file, "content_type", None) or "image/jpeg"
             b64_str = base64.b64encode(contents).decode("utf-8")
             primary_image_url = f"data:{mime};base64,{b64_str}"
+
+        # Check secondary / detail image if provided in form
+        secondary_image_url = form.get("image_2_url") or form.get("secondary_image_url") or None
+        uploaded_file_2 = form.get("image_2") or form.get("secondary_image")
+        if not secondary_image_url and uploaded_file_2 and hasattr(uploaded_file_2, "filename") and uploaded_file_2.filename:
+            contents_2 = await uploaded_file_2.read()
+            mime_2 = getattr(uploaded_file_2, "content_type", None) or "image/jpeg"
+            b64_str_2 = base64.b64encode(contents_2).decode("utf-8")
+            secondary_image_url = f"data:{mime_2};base64,{b64_str_2}"
+        if secondary_image_url:
+            additional_images.append(secondary_image_url)
 
     if not title or len(title.strip()) < 3:
         raise HTTPException(status_code=400, detail="Title must be at least 3 characters")
@@ -546,6 +557,15 @@ async def update_listing(
         listing.image_url = listing_in.image_url
     if listing_in.status:
         listing.status = listing_in.status
+    if listing_in.images is not None:
+        target_primary = listing_in.image_url or listing.image_url
+        new_img_objs = []
+        if target_primary:
+            new_img_objs.append(ListingImage(listing_id=listing.id, image_url=target_primary, is_primary=True))
+        for img_url in listing_in.images:
+            if img_url and img_url != target_primary:
+                new_img_objs.append(ListingImage(listing_id=listing.id, image_url=img_url, is_primary=False))
+        listing.images = new_img_objs
 
     await db.commit()
     refetch_res = await db.execute(
