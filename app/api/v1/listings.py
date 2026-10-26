@@ -65,6 +65,9 @@ def format_listing_read(listing: Listing) -> ListingRead:
         primary_item = next((img for img in images_list if img.is_primary), images_list[0])
         primary_img = primary_item.image_url
 
+    campus_name = listing.campus.name if listing.campus else None
+    campus_acronym = listing.campus.acronym if listing.campus else None
+
     return ListingRead(
         id=listing.id,
         seller_id=listing.seller_id,
@@ -80,6 +83,9 @@ def format_listing_read(listing: Listing) -> ListingRead:
         updated_at=listing.updated_at,
         seller=seller_profile,
         seller_handle=handle,
+        campus_id=listing.campus_id,
+        campus_name=campus_name,
+        campus_acronym=campus_acronym,
         images=images_list
     )
 
@@ -88,6 +94,7 @@ def format_listing_read(listing: Listing) -> ListingRead:
 @router.get("/", response_model=PaginatedListingsResponse)
 async def list_listings(
     db: AsyncSession = Depends(get_db),
+    campus_id: Optional[uuid.UUID] = Query(None, description="Filter items by university campus"),
     category: Optional[str] = Query(None, description="Filter items by category (e.g. Textbooks, Electronics)"),
     min_price: Optional[int] = Query(None, ge=0, description="Minimum price filter (in kobo/minor units)"),
     max_price: Optional[int] = Query(None, ge=0, description="Maximum price filter (in kobo/minor units)"),
@@ -103,6 +110,10 @@ async def list_listings(
     price bounds, search keywords, and pagination (limit, offset).
     """
     base_conditions = []
+
+    # Campus filter
+    if campus_id is not None:
+        base_conditions.append(Listing.campus_id == campus_id)
 
     # Status filter
     if status and status.lower() != "all":
@@ -142,7 +153,8 @@ async def list_listings(
         select(Listing)
         .options(
             selectinload(Listing.seller).selectinload(User.profile),
-            selectinload(Listing.images)
+            selectinload(Listing.images),
+            selectinload(Listing.campus)
         )
     )
     if base_conditions:
@@ -194,6 +206,7 @@ async def create_listing(
     status_val: str = "active"
     primary_image_url: Optional[str] = None
     additional_images: List[str] = []
+    target_campus_id: Optional[uuid.UUID] = current_user.campus_id
 
     if "application/json" in content_type:
         try:
@@ -211,6 +224,8 @@ async def create_listing(
         status_val = listing_in.status
         primary_image_url = listing_in.image_url
         additional_images = listing_in.images or []
+        if listing_in.campus_id:
+            target_campus_id = listing_in.campus_id
     else:
         # Multipart form data
         form = await request.form()
@@ -222,6 +237,12 @@ async def create_listing(
         price = int(price_raw)
         category = str(form.get("category", "Other"))
         primary_image_url = form.get("image_url") or None
+        campus_raw = form.get("campus_id")
+        if campus_raw and str(campus_raw).strip():
+            try:
+                target_campus_id = uuid.UUID(str(campus_raw).strip())
+            except Exception:
+                pass
         
         # Check primary uploaded file if any - store persistently as base64 data URL to survive Render spin-down
         uploaded_file = form.get("image")
@@ -247,6 +268,7 @@ async def create_listing(
 
     listing = Listing(
         seller_id=current_user.id,
+        campus_id=target_campus_id,
         title=title.strip(),
         description=description.strip() if description else None,
         price=price,
@@ -282,7 +304,8 @@ async def create_listing(
         select(Listing)
         .options(
             selectinload(Listing.seller).selectinload(User.profile),
-            selectinload(Listing.images)
+            selectinload(Listing.images),
+            selectinload(Listing.campus)
         )
         .where(Listing.id == listing.id)
     )
@@ -364,7 +387,8 @@ async def add_listing_image(
         select(Listing)
         .options(
             selectinload(Listing.seller).selectinload(User.profile),
-            selectinload(Listing.images)
+            selectinload(Listing.images),
+            selectinload(Listing.campus)
         )
         .where(Listing.id == listing_id)
     )
@@ -405,7 +429,8 @@ async def read_my_listings(
         select(Listing)
         .options(
             selectinload(Listing.seller).selectinload(User.profile),
-            selectinload(Listing.images)
+            selectinload(Listing.images),
+            selectinload(Listing.campus)
         )
         .where(Listing.seller_id == current_user.id)
         .order_by(Listing.created_at.desc())
@@ -426,7 +451,8 @@ async def read_listing(
         select(Listing)
         .options(
             selectinload(Listing.seller).selectinload(User.profile),
-            selectinload(Listing.images)
+            selectinload(Listing.images),
+            selectinload(Listing.campus)
         )
         .where(Listing.id == listing_id)
     )
@@ -452,7 +478,8 @@ async def toggle_listing_status(
         select(Listing)
         .options(
             selectinload(Listing.seller).selectinload(User.profile),
-            selectinload(Listing.images)
+            selectinload(Listing.images),
+            selectinload(Listing.campus)
         )
         .where(Listing.id == listing_id)
     )
@@ -483,7 +510,8 @@ async def toggle_listing_status(
         select(Listing)
         .options(
             selectinload(Listing.seller).selectinload(User.profile),
-            selectinload(Listing.images)
+            selectinload(Listing.images),
+            selectinload(Listing.campus)
         )
         .where(Listing.id == listing_id)
     )
@@ -533,7 +561,8 @@ async def update_listing(
         select(Listing)
         .options(
             selectinload(Listing.seller).selectinload(User.profile),
-            selectinload(Listing.images)
+            selectinload(Listing.images),
+            selectinload(Listing.campus)
         )
         .where(Listing.id == listing_id)
     )
@@ -553,6 +582,8 @@ async def update_listing(
         listing.price = listing_in.price
     if listing_in.category:
         listing.category = listing_in.category
+    if listing_in.campus_id is not None:
+        listing.campus_id = listing_in.campus_id
     if listing_in.image_url:
         listing.image_url = listing_in.image_url
     if listing_in.status:
@@ -572,7 +603,8 @@ async def update_listing(
         select(Listing)
         .options(
             selectinload(Listing.seller).selectinload(User.profile),
-            selectinload(Listing.images)
+            selectinload(Listing.images),
+            selectinload(Listing.campus)
         )
         .where(Listing.id == listing_id)
     )

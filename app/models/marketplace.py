@@ -8,6 +8,7 @@ from app.models.base_class import Base
 if TYPE_CHECKING:
     from app.models.user import User
     from app.models.chat import Conversation
+    from app.models.campus import Campus
 
 class Listing(Base):
     seller_id: Mapped[uuid.UUID] = mapped_column(
@@ -21,6 +22,11 @@ class Listing(Base):
     category: Mapped[str] = mapped_column(String(50), default="Other", index=True, nullable=False)
     status: Mapped[str] = mapped_column(String(50), default="active", index=True, nullable=False)
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    campus_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("campus.id", ondelete="SET NULL"), 
+        nullable=True, 
+        index=True
+    )
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -39,6 +45,7 @@ class Listing(Base):
 
     # Relationships with cascading deletes
     seller: Mapped["User"] = relationship("User", back_populates="listings", lazy="selectin")
+    campus: Mapped["Campus | None"] = relationship("Campus", back_populates="listings", lazy="selectin")
     images: Mapped[List["ListingImage"]] = relationship(
         "ListingImage", 
         back_populates="listing", 

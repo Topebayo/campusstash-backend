@@ -48,7 +48,59 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text('ALTER TABLE listing_image ALTER COLUMN image_url TYPE TEXT;'))
             except Exception:
                 pass
+
+            try:
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS campus_id UUID;'))
+                await conn.execute(text('ALTER TABLE listing ADD COLUMN IF NOT EXISTS campus_id UUID;'))
+            except Exception:
+                pass
         logger.info("Database schemas verified and synchronized successfully.")
+
+        # Seed 5 major campuses if not already seeded
+        try:
+            from app.db.session import AsyncSessionLocal
+            from app.models.campus import Campus
+            from sqlalchemy import select
+            async with AsyncSessionLocal() as session:
+                campus_check = await session.execute(select(Campus).limit(1))
+                if not campus_check.scalar_one_or_none():
+                    seeded_campuses = [
+                        Campus(
+                            name="University of Ibadan",
+                            acronym="UI",
+                            state="Oyo",
+                            popular_hostels=["Kuti", "Bello", "Queen Idia", "Awo", "Tedder", "Mellanby", "Zik", "Abadina", "Agbowo"]
+                        ),
+                        Campus(
+                            name="University of Lagos",
+                            acronym="UNILAG",
+                            state="Lagos",
+                            popular_hostels=["Jaja", "Moremi", "Mariere", "Eni Njoku", "Madam Tinubu", "Biobaku", "Fagunwa", "New Hall", "Akintunde"]
+                        ),
+                        Campus(
+                            name="Obafemi Awolowo University",
+                            acronym="OAU",
+                            state="Osun",
+                            popular_hostels=["Angola", "Mozambique", "Fajuyi", "Awolowo", "Moremi", "Akintola", "ETF"]
+                        ),
+                        Campus(
+                            name="Federal University of Technology, Akure",
+                            acronym="FUTA",
+                            state="Ondo",
+                            popular_hostels=["Jibowu", "Abiola", "Oluwafemi", "Albert", "South Gate", "North Gate"]
+                        ),
+                        Campus(
+                            name="Lead City University",
+                            acronym="LCU",
+                            state="Oyo",
+                            popular_hostels=["Achievers Hall", "Peace Hall", "Senate Hall", "Honours Hall"]
+                        )
+                    ]
+                    session.add_all(seeded_campuses)
+                    await session.commit()
+                    logger.info("Successfully seeded 5 major Nigerian campuses.")
+        except Exception as seed_err:
+            logger.warning(f"Campus seeding note: {seed_err}")
     except Exception as e:
         logger.warning(f"Database initialization note: {e}")
     yield
@@ -133,7 +185,7 @@ async def health_check():
         'timestamp': time.time()
     }
 
-from app.api.v1 import auth, listings, dropzones, chat, escrow, users, conversations
+from app.api.v1 import auth, listings, dropzones, chat, escrow, users, conversations, campuses, item_requests
 
 # Auth routes (mounted at both /api/auth and /api/v1/auth)
 app.include_router(auth.router, prefix='/api/auth', tags=['auth'])
@@ -154,3 +206,11 @@ app.include_router(chat.router, prefix='/api/v1/chat', tags=['chat'])
 app.include_router(dropzones.router, prefix='/api/v1/dropzones', tags=['dropzones'])
 app.include_router(escrow.router, prefix='/api/v1/escrow', tags=['escrow'])
 app.include_router(users.router, prefix='/api/v1/users', tags=['users'])
+
+# Campuses routes (publicly accessible)
+app.include_router(campuses.router, prefix='/api/campuses', tags=['campuses'])
+app.include_router(campuses.router, prefix='/api/v1/campuses', tags=['campuses'])
+
+# Wanted Board / Student Item Requests (public browse, auth create)
+app.include_router(item_requests.router, prefix='/api/requests', tags=['requests'])
+app.include_router(item_requests.router, prefix='/api/v1/requests', tags=['requests'])

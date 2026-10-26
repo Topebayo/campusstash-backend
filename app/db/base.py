@@ -5,3 +5,5 @@ from app.models.chat import Conversation, Message, MaskedChatMessage
 from app.models.financial import Wallet, WalletLedger, EscrowTransaction, TransactionStatus
 
 from app.models.phone_verification import PhoneVerification
+
+from app.models.campus import Campus, ItemRequest

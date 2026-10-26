@@ -36,6 +36,7 @@ class ListingCreate(BaseModel):
     status: str = Field(default="active", max_length=50, description="Status: active, sold, etc.")
     image_url: Optional[str] = Field(None, description="Optional primary cover image URL")
     images: Optional[List[str]] = Field(default_factory=list, description="List of image URLs to attach")
+    campus_id: Optional[uuid.UUID] = Field(None, description="Optional Campus ID scope")
 
     @model_validator(mode="before")
     @classmethod
@@ -63,6 +64,7 @@ class ListingUpdate(BaseModel):
     status: Optional[str] = Field(None, max_length=50)
     image_url: Optional[str] = None
     images: Optional[List[str]] = None
+    campus_id: Optional[uuid.UUID] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -95,6 +97,9 @@ class ListingRead(BaseModel):
     updated_at: datetime
     seller: Optional[SellerProfileRead] = None
     seller_handle: Optional[str] = None
+    campus_id: Optional[uuid.UUID] = None
+    campus_name: Optional[str] = None
+    campus_acronym: Optional[str] = None
     images: List[ListingImageRead] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)

@@ -8,6 +8,7 @@ from app.models.base_class import Base
 if TYPE_CHECKING:
     from app.models.marketplace import Listing
     from app.models.chat import Conversation, Message
+    from app.models.campus import Campus
 
 class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
@@ -16,6 +17,11 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(50), unique=True, index=True, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_phone_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    campus_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("campus.id", ondelete="SET NULL"), 
+        nullable=True, 
+        index=True
+    )
     
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -33,6 +39,7 @@ class User(Base):
     )
 
     # Relationships with cascading deletes and passive_deletes for PostgreSQL FK efficiency
+    campus: Mapped["Campus | None"] = relationship("Campus", lazy="selectin")
     profile: Mapped["PublicProfile"] = relationship(
         "PublicProfile", 
         back_populates="user", 
