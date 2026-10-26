@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 from sqlalchemy import String, ForeignKey, Text, Boolean, DateTime, func, Index, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base_class import Base
@@ -8,12 +8,18 @@ from app.models.base_class import Base
 if TYPE_CHECKING:
     from app.models.user import User
     from app.models.marketplace import Listing
+    from app.models.campus import ItemRequest
 
 class Conversation(Base):
-    listing_id: Mapped[uuid.UUID] = mapped_column(
+    listing_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("listing.id", ondelete="CASCADE"), 
         index=True, 
-        nullable=False
+        nullable=True
+    )
+    request_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("item_request.id", ondelete="CASCADE"), 
+        index=True, 
+        nullable=True
     )
     buyer_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("user.id", ondelete="CASCADE"), 
@@ -42,12 +48,12 @@ class Conversation(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("listing_id", "buyer_id", name="uq_conversation_listing_buyer"),
-        Index("ix_conversation_listing_seller", "listing_id", "seller_id"),
+                Index("ix_conversation_listing_seller", "listing_id", "seller_id"),
     )
 
     # Relationships
-    listing: Mapped["Listing"] = relationship("Listing", back_populates="conversations", lazy="selectin")
+    listing: Mapped[Optional["Listing"]] = relationship("Listing", back_populates="conversations", lazy="selectin")
+    item_request: Mapped[Optional["ItemRequest"]] = relationship("ItemRequest", lazy="selectin")
     buyer: Mapped["User"] = relationship("User", foreign_keys=[buyer_id], back_populates="buyer_conversations", lazy="selectin")
     seller: Mapped["User"] = relationship("User", foreign_keys=[seller_id], back_populates="seller_conversations", lazy="selectin")
     messages: Mapped[List["Message"]] = relationship(

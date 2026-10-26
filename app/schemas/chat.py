@@ -27,7 +27,9 @@ class PaginatedMessagesResponse(BaseModel):
     conversation_id: uuid.UUID
 
 class ConversationCreate(BaseModel):
-    listing_id: uuid.UUID
+    listing_id: Optional[uuid.UUID] = None
+    request_id: Optional[uuid.UUID] = None
+    recipient_id: Optional[uuid.UUID] = None
     initial_message: Optional[str] = None
 
 class ParticipantRead(BaseModel):
@@ -40,7 +42,8 @@ class ParticipantRead(BaseModel):
 
 class ConversationRead(BaseModel):
     id: uuid.UUID
-    listing_id: uuid.UUID
+    listing_id: Optional[uuid.UUID] = None
+    request_id: Optional[uuid.UUID] = None
     buyer_id: uuid.UUID
     seller_id: uuid.UUID
     created_at: datetime

@@ -65,14 +65,21 @@ def format_conversation_read(conv: Conversation, current_user_id: uuid.UUID, unr
         last_msg = sorted_msgs[-1].text
         last_time = sorted_msgs[-1].timestamp
 
+    listing_title = None
+    if conv.listing:
+        listing_title = conv.listing.title
+    elif getattr(conv, "item_request", None) and conv.item_request:
+        listing_title = f"Wanted: {conv.item_request.title}"
+
     return ConversationRead(
         id=conv.id,
         listing_id=conv.listing_id,
+        request_id=getattr(conv, "request_id", None),
         buyer_id=conv.buyer_id,
         seller_id=conv.seller_id,
         created_at=conv.created_at,
         updated_at=conv.updated_at,
-        listing_title=conv.listing.title if conv.listing else None,
+        listing_title=listing_title,
         other_user=participant,
         last_message=last_msg,
         last_message_time=last_time,
@@ -167,6 +174,81 @@ async def create_or_get_conversation(
     """
     Start or retrieve an existing 1-on-1 conversation for a marketplace listing.
     """
+    # Support item_request (Wanted board) direct chat
+    if conv_in.request_id:
+        from app.models.campus import ItemRequest
+        req_res = await db.execute(
+            select(ItemRequest)
+            .options(selectinload(ItemRequest.user).selectinload(User.profile))
+            .where(ItemRequest.id == conv_in.request_id)
+        )
+        item_req = req_res.scalar_one_or_none()
+        if not item_req:
+            raise HTTPException(status_code=404, detail="Item request not found")
+
+        if item_req.user_id == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="Cannot start a conversation with yourself for your own request"
+            )
+
+        res = await db.execute(
+            select(Conversation)
+            .options(
+                selectinload(Conversation.listing),
+            selectinload(Conversation.item_request),
+                selectinload(Conversation.item_request),
+                selectinload(Conversation.buyer).selectinload(User.profile),
+                selectinload(Conversation.seller).selectinload(User.profile),
+                selectinload(Conversation.messages)
+            )
+            .where(
+                Conversation.request_id == conv_in.request_id,
+                Conversation.seller_id == current_user.id
+            )
+        )
+        existing_conv = res.scalar_one_or_none()
+        if existing_conv:
+            return format_conversation_read(existing_conv, current_user.id)
+
+        new_conv = Conversation(
+            request_id=item_req.id,
+            listing_id=None,
+            buyer_id=item_req.user_id,
+            seller_id=current_user.id
+        )
+        db.add(new_conv)
+        await db.commit()
+        await db.refresh(new_conv)
+
+        if conv_in.initial_message and conv_in.initial_message.strip():
+            first_msg = Message(
+                conversation_id=new_conv.id,
+                sender_id=current_user.id,
+                text=conv_in.initial_message.strip(),
+                is_read=False
+            )
+            db.add(first_msg)
+            await db.commit()
+
+        res_loaded = await db.execute(
+            select(Conversation)
+            .options(
+                selectinload(Conversation.listing),
+            selectinload(Conversation.item_request),
+                selectinload(Conversation.item_request),
+                selectinload(Conversation.buyer).selectinload(User.profile),
+                selectinload(Conversation.seller).selectinload(User.profile),
+                selectinload(Conversation.messages)
+            )
+            .where(Conversation.id == new_conv.id)
+        )
+        fresh_conv = res_loaded.scalar_one()
+        return format_conversation_read(fresh_conv, current_user.id)
+
+    if not conv_in.listing_id:
+        raise HTTPException(status_code=400, detail="Either listing_id or request_id is required")
+
     # Verify listing exists
     list_res = await db.execute(
         select(Listing)
@@ -188,6 +270,7 @@ async def create_or_get_conversation(
         select(Conversation)
         .options(
             selectinload(Conversation.listing),
+            selectinload(Conversation.item_request),
             selectinload(Conversation.buyer).selectinload(User.profile),
             selectinload(Conversation.seller).selectinload(User.profile),
             selectinload(Conversation.messages)
@@ -227,6 +310,7 @@ async def create_or_get_conversation(
         select(Conversation)
         .options(
             selectinload(Conversation.listing),
+            selectinload(Conversation.item_request),
             selectinload(Conversation.buyer).selectinload(User.profile),
             selectinload(Conversation.seller).selectinload(User.profile),
             selectinload(Conversation.messages)
@@ -251,6 +335,7 @@ async def list_conversations(
         select(Conversation)
         .options(
             selectinload(Conversation.listing),
+            selectinload(Conversation.item_request),
             selectinload(Conversation.buyer).selectinload(User.profile),
             selectinload(Conversation.seller).selectinload(User.profile),
             selectinload(Conversation.messages)
@@ -287,6 +372,7 @@ async def get_conversation(
         select(Conversation)
         .options(
             selectinload(Conversation.listing),
+            selectinload(Conversation.item_request),
             selectinload(Conversation.buyer).selectinload(User.profile),
             selectinload(Conversation.seller).selectinload(User.profile),
             selectinload(Conversation.messages)
