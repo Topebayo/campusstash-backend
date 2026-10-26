@@ -60,14 +60,13 @@ async def send_phone_otp(phone: str, otp_code: str) -> dict:
     if not normalized or len(normalized) < 10:
         return {"success": False, "error": "Invalid phone number format."}
 
-    # Development / Simulated mode
-    if not settings.TERMII_API_KEY or settings.TERMII_API_KEY.strip() == "":
-        print(f"\n[DEV OTP] Termii API Key not configured. Simulated OTP for {normalized} is: {otp_code}\n")
-        logger.info(f"[DEV OTP] Simulated OTP for {normalized} is: {otp_code}")
+    # Development / Simulated mode: Protect Termii credits during testing
+    if not settings.ENABLE_LIVE_SMS or not settings.TERMII_API_KEY or settings.TERMII_API_KEY.strip() == "":
+        logger.info(f"[CREDIT SAFEGUARD] Simulated OTP for {normalized} is: {otp_code}")
         return {
             "success": True, 
             "provider": "dev_simulation", 
-            "message": "Simulated OTP logged (Dev mode)",
+            "message": "Verification code generated in simulation mode (0 Termii credits consumed).",
             "dev_code": otp_code
         }
 

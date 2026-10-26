@@ -1,4 +1,4 @@
-﻿import os
+import os
 import logging
 from typing import List
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: str = "campusstash-uploads"
 
     # Termii SMS & WhatsApp OTP
+    ENABLE_LIVE_SMS: bool = False  # Set to True when ready to burn live Termii credits
     TERMII_API_KEY: str = ""
     TERMII_SENDER_ID: str = "OE Alert"
     TERMII_CHANNEL: str = "dnd"
