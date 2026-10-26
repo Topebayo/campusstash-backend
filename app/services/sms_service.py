@@ -71,7 +71,7 @@ async def send_phone_otp(phone: str, otp_code: str) -> dict:
         }
 
     url = f"{settings.TERMII_BASE_URL.rstrip('/')}/api/sms/send"
-    sms_text = f"Your NEXISFLOW verification code is {otp_code}. Use this code to complete your NEXISFLOW account verification. Valid for 10 minutes. Do not share this code with anyone."
+    sms_text = f"Your NEXISFLOW verification code is {otp_code}. Use this code to complete your NEXISFLOW account verification. Valid for 10 minutes. Do not share this code with any"
     api_key = settings.TERMII_API_KEY.strip()
 
     try:

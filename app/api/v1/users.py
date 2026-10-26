@@ -39,6 +39,8 @@ async def update_user_me(
 
     if user_in.phone is not None:
         phone_cleaned = user_in.phone.strip()
+        if current_user.phone and phone_cleaned != current_user.phone:
+            raise HTTPException(status_code=400, detail="Verified phone number is permanently locked and cannot be changed.")
         if not phone_cleaned:
             raise HTTPException(status_code=400, detail="Phone number cannot be empty")
         result = await db.execute(
@@ -50,6 +52,8 @@ async def update_user_me(
         
     if user_in.burner_handle is not None:
         handle_cleaned = user_in.burner_handle.strip().lstrip('@')
+        if current_user.profile and current_user.profile.burner_handle and handle_cleaned != current_user.profile.burner_handle:
+            raise HTTPException(status_code=400, detail="Username is permanently locked and cannot be changed.")
         if not handle_cleaned:
             raise HTTPException(status_code=400, detail="Username/handle cannot be empty")
         # Check uniqueness case-insensitively
