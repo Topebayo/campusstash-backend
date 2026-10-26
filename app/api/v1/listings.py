@@ -374,18 +374,12 @@ async def add_listing_image(
         image_url=image_in.image_url,
         is_primary=image_in.is_primary
     )
+    if listing.images is None:
+        listing.images = []
+    listing.images.append(new_img)
     db.add(new_img)
     await db.commit()
-    refetch_res = await db.execute(
-        select(Listing)
-        .options(
-            selectinload(Listing.seller).selectinload(User.profile),
-            selectinload(Listing.images)
-        )
-        .where(Listing.id == listing_id)
-    )
-    full_listing = refetch_res.scalar_one()
-    return format_listing_read(full_listing)
+    return format_listing_read(listing)
 
 
 @router.get("/me", response_model=List[ListingRead])
