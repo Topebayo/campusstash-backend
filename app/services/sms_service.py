@@ -71,7 +71,7 @@ async def send_phone_otp(phone: str, otp_code: str) -> dict:
         }
 
     url = f"{settings.TERMII_BASE_URL.rstrip('/')}/api/sms/send"
-    sms_text = f"Your NEXISFLOW verification code is {otp_code}. Use this code to complete your NEXISFLOW account verification. Valid for 10 minutes. Do not share this code with any"
+    sms_text = f"Your NEXISFLOW verification code is {otp_code}. Use this code to complete your NEXISFLOW account verification. Valid for 10 minutes. Do not share this code with anyone."
     api_key = settings.TERMII_API_KEY.strip()
 
     try:
@@ -108,6 +108,10 @@ async def send_phone_otp(phone: str, otp_code: str) -> dict:
                             if data.get("message") == "Successfully Sent":
                                 logger.info(f"Termii SMS sent successfully via sender '{s_id}' channel '{channel}'")
                                 return {"success": True, "provider": "termii", "data": data}
+                            else:
+                                logger.warning(f"Termii response with sender '{s_id}' channel '{channel}': {data}")
+                        else:
+                            logger.warning(f"Termii HTTP {resp.status_code} with sender '{s_id}' channel '{channel}': {resp.text}")
                     except Exception as send_err:
                         logger.warning(f"Attempt with sender '{s_id}' failed: {send_err}")
 
