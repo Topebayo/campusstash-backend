@@ -4,7 +4,9 @@ import logging
 import traceback
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse, Response, RedirectResponse
+import base64
+import uuid
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -218,3 +220,145 @@ app.include_router(campuses.router, prefix='/api/v1/campuses', tags=['campuses']
 # Wanted Board / Student Item Requests (public browse, auth create)
 app.include_router(item_requests.router, prefix='/api/requests', tags=['requests'])
 app.include_router(item_requests.router, prefix='/api/v1/requests', tags=['requests'])
+
+
+# ─── Dynamic Open Graph (OG) Tag Injector for WhatsApp & Social Sharing ───
+CRAWLER_USER_AGENTS = [
+    "facebookexternalhit", "whatsapp", "facebot", "twitterbot", 
+    "telegrambot", "linkedinbot", "slackbot", "discordbot", "googlebot", "applebot"
+]
+
+@app.get("/l/{listing_id}/image", tags=["Sharing"])
+@app.get("/share/{listing_id}/image", tags=["Sharing"])
+async def get_listing_preview_image(listing_id: str):
+    """
+    Serves the listing cover photo as a binary JPEG image response.
+    Supports base64 data URLs, local static files, and remote redirects,
+    so WhatsApp scrapers can display rich photo thumbnails.
+    """
+    try:
+        lid = uuid.UUID(listing_id)
+    except ValueError:
+        return Response(status_code=404)
+
+    from app.db.session import AsyncSessionLocal
+    from app.models.marketplace import Listing
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(Listing).where(Listing.id == lid))
+        listing = result.scalar_one_or_none()
+        if not listing or not listing.image_url:
+            return Response(status_code=404)
+
+        img_str = listing.image_url.strip()
+        if img_str.startswith("data:image/"):
+            try:
+                header, encoded = img_str.split(",", 1)
+                media_type = header.split(";")[0].replace("data:", "")
+                data = base64.b64decode(encoded)
+                return Response(
+                    content=data, 
+                    media_type=media_type, 
+                    headers={"Cache-Control": "public, max-age=86400"}
+                )
+            except Exception:
+                return Response(status_code=500)
+        elif img_str.startswith("http://") or img_str.startswith("https://"):
+            return RedirectResponse(url=img_str, status_code=302)
+        else:
+            return Response(status_code=404)
+
+
+@app.get("/l/{listing_id}", response_class=HTMLResponse, tags=["Sharing"])
+@app.get("/share/{listing_id}", response_class=HTMLResponse, tags=["Sharing"])
+async def share_listing_preview(request: Request, listing_id: str):
+    """
+    Dynamic Open Graph (OG) tag injector for WhatsApp, Twitter, and Facebook.
+    When crawlers visit, it outputs custom Open Graph meta tags (title, price in Naira, campus, and image).
+    When human students visit, it instantly redirects to the React frontend listing view.
+    """
+    user_agent = (request.headers.get("user-agent") or "").lower()
+    is_crawler = any(c in user_agent for c in CRAWLER_USER_AGENTS)
+
+    # Determine frontend target base
+    frontend_url = "https://campusstash-frontend.onrender.com"
+    if "campusstash.onrender.com" in (request.headers.get("host") or ""):
+        frontend_url = "https://campusstash.onrender.com"
+
+    redirect_target = f"{frontend_url}/?item={listing_id}"
+
+    # If it's a normal human browser and not a crawler, redirect immediately
+    if not is_crawler and "debug" not in request.query_params:
+        return RedirectResponse(url=redirect_target, status_code=302)
+
+    # For crawlers: fetch listing details from DB
+    try:
+        lid = uuid.UUID(listing_id)
+    except ValueError:
+        return RedirectResponse(url=frontend_url, status_code=302)
+
+    from app.db.session import AsyncSessionLocal
+    from app.models.marketplace import Listing
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Listing)
+            .options(selectinload(Listing.campus))
+            .where(Listing.id == lid)
+        )
+        listing = result.scalar_one_or_none()
+
+    if not listing:
+        return RedirectResponse(url=frontend_url, status_code=302)
+
+    # Format price in Naira
+    price_val = (listing.price / 100) if listing.price else 0
+    price_str = f"₦{price_val:,.0f}" if price_val.is_integer() else f"₦{price_val:,.2f}"
+    
+    campus_tag = listing.campus.acronym if listing.campus else "Campus"
+    title_escaped = listing.title.replace('"', '&quot;').replace('<', '&lt;')
+    desc_clean = (listing.description or "View condition and details on CampusStash.").replace('"', '&quot;').replace('\n', ' ')[:160]
+
+    backend_host = str(request.base_url).rstrip("/")
+    preview_img_url = f"{backend_host}/l/{listing_id}/image"
+
+    og_title = f"{price_str} • {title_escaped} ({campus_tag})"
+    og_desc = f"{desc_clean} — 100% anonymous campus marketplace with safe campus dropzones."
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{og_title}</title>
+    
+    <!-- Open Graph / WhatsApp / Facebook -->
+    <meta property="og:type" content="product" />
+    <meta property="og:site_name" content="CampusStash" />
+    <meta property="og:title" content="{og_title}" />
+    <meta property="og:description" content="{og_desc}" />
+    <meta property="og:image" content="{preview_img_url}" />
+    <meta property="og:image:width" content="800" />
+    <meta property="og:image:height" content="600" />
+    <meta property="og:url" content="{backend_host}/l/{listing_id}" />
+    
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="{og_title}" />
+    <meta name="twitter:description" content="{og_desc}" />
+    <meta name="twitter:image" content="{preview_img_url}" />
+
+    <!-- Instant client redirect for human users -->
+    <meta http-equiv="refresh" content="0; url={redirect_target}" />
+</head>
+<body style="font-family: sans-serif; text-align: center; padding: 2rem;">
+    <script>window.location.replace("{redirect_target}");</script>
+    <h2>CampusStash</h2>
+    <p>Opening <strong>{title_escaped}</strong> for <strong>{price_str}</strong>...</p>
+    <p><a href="{redirect_target}">Click here if not redirected automatically.</a></p>
+</body>
+</html>
+"""
+    return HTMLResponse(content=html_content)
