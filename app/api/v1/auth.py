@@ -102,7 +102,10 @@ async def send_phone_verification_otp(
 
     actual_channel = sms_res.get("channel", req_channel)
     if str(actual_channel).lower() == "voice":
-        msg = f"Calling +{normalized} now with your 6-digit verification code. Please answer the phone!"
+        if sms_res.get("success"):
+            msg = f"Calling +{normalized} now with your 6-digit verification code. Please answer the phone!"
+        else:
+            msg = f"Voice Gateway note: {sms_res.get('error', 'Unreachable')}. Please use SMS or WhatsApp." 
     elif str(actual_channel).lower() == "whatsapp":
         msg = f"A 6-digit verification code has been sent to +{normalized} via WhatsApp."
     elif str(req_channel).lower() == "whatsapp":
@@ -517,7 +520,10 @@ async def forgot_password_send_otp(
 
     actual_channel = sms_res.get("channel", req_channel)
     if str(actual_channel).lower() == "voice":
-        msg = f"Calling +{normalized} now with your password recovery code. Please answer the phone!"
+        if sms_res.get("success"):
+            msg = f"Calling +{normalized} now with your password recovery code. Please answer the phone!"
+        else:
+            msg = f"Voice Gateway note: {sms_res.get('error', 'Unreachable')}. Please use SMS or WhatsApp." 
     elif str(actual_channel).lower() == "whatsapp":
         msg = f"Password reset code has been sent to +{normalized} via WhatsApp."
     elif str(req_channel).lower() == "whatsapp":

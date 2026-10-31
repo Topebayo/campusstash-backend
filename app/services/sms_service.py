@@ -121,14 +121,17 @@ async def send_phone_otp(phone: str, otp_code: str, channel: str = "sms") -> dic
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.post(voice_url, json=voice_payload)
+                logger.info(f"Termii Voice Call response: {resp.status_code} - {resp.text}")
                 if resp.status_code == 200:
                     data = resp.json()
-                    logger.info(f"Termii Voice OTP call placed to {normalized}: {data}")
                     return {"success": True, "provider": "termii_voice", "channel": "voice", "data": data}
                 else:
                     logger.warning(f"Termii Voice OTP HTTP {resp.status_code}: {resp.text}")
+                    # Return voice status explicitly
+                    return {"success": False, "provider": "termii_voice", "channel": "voice", "error": resp.text}
         except Exception as e:
             logger.error(f"Termii Voice OTP dispatch failed: {e}")
+            return {"success": False, "provider": "termii_voice", "channel": "voice", "error": str(e)}
 
     # 2. Text / WhatsApp Channel
     sms_url = f"{base_url}/api/sms/send"
