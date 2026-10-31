@@ -281,10 +281,8 @@ async def share_listing_preview(request: Request, listing_id: str):
     user_agent = (request.headers.get("user-agent") or "").lower()
     is_crawler = any(c in user_agent for c in CRAWLER_USER_AGENTS)
 
-    # Determine frontend target base
-    frontend_url = "https://campusstash-frontend.onrender.com"
-    if "campusstash.onrender.com" in (request.headers.get("host") or ""):
-        frontend_url = "https://campusstash.onrender.com"
+    # Determine frontend target base (Production frontend is at https://campusstash.onrender.com)
+    frontend_url = "https://campusstash.onrender.com"
 
     redirect_target = f"{frontend_url}/?item={listing_id}"
 
