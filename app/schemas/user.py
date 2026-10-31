@@ -40,7 +40,7 @@ class ForgotPasswordSendOtpRequest(BaseModel):
 class ForgotPasswordResetRequest(BaseModel):
     phone: str = Field(..., description="Registered phone number")
     otp_code: str = Field(..., min_length=4, max_length=10, description="Verification code received")
-    new_password: str = Field(..., min_length=6, description="New password (minimum 6 characters)")
+    new_password: str = Field(..., min_length=8, description="New password (minimum 8 characters)")
 
 class OtpResponse(BaseModel):
     status: str
