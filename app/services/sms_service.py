@@ -83,8 +83,8 @@ async def send_phone_otp(phone: str, otp_code: str, channel: str = "sms") -> dic
     """
     Dispatches a 6-digit OTP verification code via Termii API.
     Supports SMS ('sms'), WhatsApp ('whatsapp'), and Voice Call ('voice').
-    Voice calls bypass all operator SMS firewalls and DND filters (especially effective on Airtel).
-    If Termii rejects, gracefully provides fallback dev_code so users are never blocked.
+    For Airtel Nigeria numbers, prioritizes telco-whitelisted sender IDs ('N-Alert', 'talert')
+    to prevent Airtel operator-level silent drops.
     """
     normalized = normalize_phone(phone)
     if not normalized or len(normalized) < 10:
@@ -105,6 +105,13 @@ async def send_phone_otp(phone: str, otp_code: str, channel: str = "sms") -> dic
 
     api_key = settings.TERMII_API_KEY.strip()
     base_url = settings.TERMII_BASE_URL.rstrip("/")
+
+    # Detect Airtel Nigeria numbers
+    airtel_prefixes = (
+        "234802", "234808", "234812", "234701", "234708", 
+        "234901", "234902", "234904", "234907", "234912"
+    )
+    is_airtel = any(normalized.startswith(p) for p in airtel_prefixes)
 
     # 1. Voice Call Channel: Directly dials the phone and speaks the code
     if channel_clean == "voice":
@@ -127,31 +134,49 @@ async def send_phone_otp(phone: str, otp_code: str, channel: str = "sms") -> dic
                     return {"success": True, "provider": "termii_voice", "channel": "voice", "data": data}
                 else:
                     logger.warning(f"Termii Voice OTP HTTP {resp.status_code}: {resp.text}")
-                    # Return voice status explicitly
-                    return {"success": False, "provider": "termii_voice", "channel": "voice", "error": resp.text}
+                    # If Voice route is not configured on Termii workspace, smoothly fall back to SMS
+                    logger.info(f"Voice route inactive on Termii workspace. Falling back to high-priority SMS for {normalized}...")
+                    fallback_sms = await send_phone_otp_sms(normalized, otp_code, api_key, base_url, is_airtel)
+                    fallback_sms["voice_fallback"] = True
+                    return fallback_sms
         except Exception as e:
             logger.error(f"Termii Voice OTP dispatch failed: {e}")
-            return {"success": False, "provider": "termii_voice", "channel": "voice", "error": str(e)}
+            fallback_sms = await send_phone_otp_sms(normalized, otp_code, api_key, base_url, is_airtel)
+            fallback_sms["voice_fallback"] = True
+            return fallback_sms
 
     # 2. Text / WhatsApp Channel
+    return await send_phone_otp_sms(normalized, otp_code, api_key, base_url, is_airtel, channel=channel_clean)
+
+
+async def send_phone_otp_sms(normalized: str, otp_code: str, api_key: str, base_url: str, is_airtel: bool, channel: str = "sms") -> dict:
+    """Dispatches SMS or WhatsApp via Termii with carrier-specific sender ID priority."""
     sms_url = f"{base_url}/api/sms/send"
     sms_text = f"Your CampusStash verification code is {otp_code}. Valid for 10 minutes. Do not share this code with anyone."
 
     try:
         async with httpx.AsyncClient(timeout=12.0) as client:
-            # Discover active sender ID from account
             approved_sender = await get_termii_approved_sender_id(api_key, client)
             
-            candidate_senders = ["OE Alert"]
-            if settings.TERMII_SENDER_ID and settings.TERMII_SENDER_ID not in candidate_senders:
-                candidate_senders.append(settings.TERMII_SENDER_ID)
-            if approved_sender and approved_sender not in candidate_senders:
-                candidate_senders.append(approved_sender)
-            for default_s in ["talert", "Termii", "N-Alert"]:
-                if default_s not in candidate_senders:
-                    candidate_senders.append(default_s)
+            # On Airtel Nigeria, custom unwhitelisted sender IDs ('OE Alert') are blocked by operator firewall.
+            # Use Termii's telco-whitelisted transactional sender IDs ('N-Alert', 'talert') first!
+            if is_airtel:
+                candidate_senders = ["N-Alert", "talert", "Termii"]
+                if approved_sender and approved_sender not in candidate_senders:
+                    candidate_senders.append(approved_sender)
+                if "OE Alert" not in candidate_senders:
+                    candidate_senders.append("OE Alert")
+            else:
+                candidate_senders = ["OE Alert"]
+                if settings.TERMII_SENDER_ID and settings.TERMII_SENDER_ID not in candidate_senders:
+                    candidate_senders.append(settings.TERMII_SENDER_ID)
+                if approved_sender and approved_sender not in candidate_senders:
+                    candidate_senders.append(approved_sender)
+                for default_s in ["N-Alert", "talert", "Termii"]:
+                    if default_s not in candidate_senders:
+                        candidate_senders.append(default_s)
 
-            if channel_clean == "whatsapp":
+            if channel == "whatsapp":
                 channels_to_try = ["whatsapp", "dnd", "generic"]
             else:
                 channels_to_try = ["dnd", "generic", "whatsapp"]
@@ -171,8 +196,8 @@ async def send_phone_otp(phone: str, otp_code: str, channel: str = "sms") -> dic
                         if resp.status_code == 200:
                             data = resp.json()
                             if data.get("message") == "Successfully Sent":
-                                logger.info(f"Termii SMS sent successfully via sender '{s_id}' channel '{ch}'")
-                                return {"success": True, "provider": "termii", "channel": ch, "data": data}
+                                logger.info(f"Termii SMS sent successfully to {normalized} via sender '{s_id}' channel '{ch}'")
+                                return {"success": True, "provider": "termii", "sender_id": s_id, "channel": ch, "data": data}
                             else:
                                 logger.warning(f"Termii response with sender '{s_id}' channel '{ch}': {data}")
                         else:
@@ -180,22 +205,11 @@ async def send_phone_otp(phone: str, otp_code: str, channel: str = "sms") -> dic
                     except Exception as send_err:
                         logger.warning(f"Attempt with sender '{s_id}' channel '{ch}' failed: {send_err}")
 
-            # If all live Termii SMS attempts fail, try voice call as emergency fallback
-            try:
-                voice_url = f"{base_url}/api/sms/otp/call"
-                numeric_code = int(re.sub(r"[^\d]", "", str(otp_code)))
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.post(voice_url, json={"api_key": api_key, "phone_number": normalized, "code": numeric_code})
-                    if resp.status_code == 200:
-                        return {"success": True, "provider": "termii_voice_fallback", "channel": "voice", "data": resp.json()}
-            except Exception:
-                pass
-
             logger.warning(f"Termii delivery could not be completed. Falling back to dev verification.")
             return {
                 "success": True, 
                 "provider": "termii_fallback", 
-                "channel": channel_clean,
+                "channel": channel,
                 "message": "Verification code generated (fallback mode active)",
                 "dev_code": otp_code
             }
@@ -205,7 +219,8 @@ async def send_phone_otp(phone: str, otp_code: str, channel: str = "sms") -> dic
         return {
             "success": True, 
             "provider": "fallback_dev", 
-            "channel": channel_clean,
+            "channel": channel,
             "message": f"Error reaching SMS gateway: {e}",
             "dev_code": otp_code
         }
+

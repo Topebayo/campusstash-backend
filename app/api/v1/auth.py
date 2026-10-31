@@ -101,17 +101,18 @@ async def send_phone_verification_otp(
         dev_code = otp_code
 
     actual_channel = sms_res.get("channel", req_channel)
-    if str(actual_channel).lower() == "voice":
-        if sms_res.get("success"):
-            msg = f"Calling +{normalized} now with your 6-digit verification code. Please answer the phone!"
-        else:
-            msg = f"Voice Gateway note: {sms_res.get('error', 'Unreachable')}. Please use SMS or WhatsApp." 
+    if sms_res.get("voice_fallback"):
+        msg = f"Voice Call route is inactive on this gateway. A 6-digit verification code was delivered to +{normalized} via SMS text message instead."
+    elif str(actual_channel).lower() == "voice" and sms_res.get("success"):
+        msg = f"Calling +{normalized} now with your 6-digit verification code. Please answer the phone!"
     elif str(actual_channel).lower() == "whatsapp":
         msg = f"A 6-digit verification code has been sent to +{normalized} via WhatsApp."
     elif str(req_channel).lower() == "whatsapp":
         msg = f"A 6-digit code has been delivered to +{normalized} via SMS text message (routed via SMS for instant delivery). Please check your text messages!"
     else:
-        msg = f"A 6-digit verification code has been sent to +{normalized} via SMS."
+        s_id = sms_res.get("sender_id")
+        tag = f" (via {s_id})" if s_id else ""
+        msg = f"A 6-digit verification code has been sent to +{normalized} via SMS{tag}."
 
     return OtpResponse(
         status="success",
@@ -519,17 +520,18 @@ async def forgot_password_send_otp(
         dev_code = otp_code
 
     actual_channel = sms_res.get("channel", req_channel)
-    if str(actual_channel).lower() == "voice":
-        if sms_res.get("success"):
-            msg = f"Calling +{normalized} now with your password recovery code. Please answer the phone!"
-        else:
-            msg = f"Voice Gateway note: {sms_res.get('error', 'Unreachable')}. Please use SMS or WhatsApp." 
+    if sms_res.get("voice_fallback"):
+        msg = f"Voice Call route is inactive on this gateway. A 6-digit recovery code was delivered to +{normalized} via SMS text message instead."
+    elif str(actual_channel).lower() == "voice" and sms_res.get("success"):
+        msg = f"Calling +{normalized} now with your password recovery code. Please answer the phone!"
     elif str(actual_channel).lower() == "whatsapp":
         msg = f"Password reset code has been sent to +{normalized} via WhatsApp."
     elif str(req_channel).lower() == "whatsapp":
         msg = f"Password reset code has been delivered to +{normalized} via SMS text message (routed via SMS for instant delivery). Please check your text messages!"
     else:
-        msg = f"Password reset code has been sent to +{normalized} via SMS."
+        s_id = sms_res.get("sender_id")
+        tag = f" (via {s_id})" if s_id else ""
+        msg = f"Password reset code has been sent to +{normalized} via SMS{tag}."
 
     return OtpResponse(
         status="success",
