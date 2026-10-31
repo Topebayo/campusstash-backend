@@ -143,10 +143,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
-# Configure CORS with strict origins whitelist (No wildcard '*' with credentials)
+# Configure CORS with strict origins whitelist and mobile regex
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.get_cors_origins(),
+    allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|capacitor://localhost|ionic://localhost|https://campusstash.*\.onrender\.com)$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],

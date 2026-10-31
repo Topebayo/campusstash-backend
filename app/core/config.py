@@ -61,7 +61,11 @@ class Settings(BaseSettings):
             "http://localhost:3000",
             "http://127.0.0.1:3000",
             "capacitor://localhost",
+            "https://localhost",
             "http://localhost",
+            "https://127.0.0.1",
+            "http://127.0.0.1",
+            "ionic://localhost",
             "https://campusstash-frontend.onrender.com",
             "https://campusstash.onrender.com",
         ]
