@@ -81,35 +81,64 @@ async def get_termii_approved_sender_id(api_key: str, client: httpx.AsyncClient)
 
 async def send_phone_otp(phone: str, otp_code: str, channel: str = "sms") -> dict:
     """
-    Dispatches a 6-digit OTP verification SMS via Termii API.
-    Uses approved sender ID or Termii's default trial sender ID 'talert'.
-    If Termii rejects (e.g. unapproved sender or insufficient balance), 
-    gracefully provides fallback dev_code so signup is never blocked.
+    Dispatches a 6-digit OTP verification code via Termii API.
+    Supports SMS ('sms'), WhatsApp ('whatsapp'), and Voice Call ('voice').
+    Voice calls bypass all operator SMS firewalls and DND filters (especially effective on Airtel).
+    If Termii rejects, gracefully provides fallback dev_code so users are never blocked.
     """
     normalized = normalize_phone(phone)
     if not normalized or len(normalized) < 10:
         return {"success": False, "error": "Invalid phone number format."}
 
+    channel_clean = str(channel or "sms").lower().strip()
+
     # Development / Simulated mode: Protect Termii credits during testing
     if not settings.ENABLE_LIVE_SMS or not settings.TERMII_API_KEY or settings.TERMII_API_KEY.strip() == "":
-        logger.info(f"[CREDIT SAFEGUARD] Simulated OTP for {normalized} is: {otp_code}")
+        logger.info(f"[CREDIT SAFEGUARD] Simulated {channel_clean.upper()} OTP for {normalized} is: {otp_code}")
         return {
             "success": True, 
             "provider": "dev_simulation", 
-            "message": "Verification code generated in simulation mode (0 Termii credits consumed).",
+            "channel": channel_clean,
+            "message": f"Verification code generated in simulation mode ({channel_clean}).",
             "dev_code": otp_code
         }
 
-    url = f"{settings.TERMII_BASE_URL.rstrip('/')}/api/sms/send"
-    sms_text = f"Your NEXISFLOW verification code is {otp_code}. Use this code to complete your NEXISFLOW account verification. Valid for 10 minutes. Do not share this code with anyone."
     api_key = settings.TERMII_API_KEY.strip()
+    base_url = settings.TERMII_BASE_URL.rstrip("/")
+
+    # 1. Voice Call Channel: Directly dials the phone and speaks the code
+    if channel_clean == "voice":
+        voice_url = f"{base_url}/api/sms/otp/send/voice"
+        try:
+            numeric_code = int(re.sub(r"[^\d]", "", str(otp_code)))
+        except Exception:
+            numeric_code = 123456
+        voice_payload = {
+            "api_key": api_key,
+            "phone_number": normalized,
+            "code": numeric_code
+        }
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(voice_url, json=voice_payload)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    logger.info(f"Termii Voice OTP call placed to {normalized}: {data}")
+                    return {"success": True, "provider": "termii_voice", "channel": "voice", "data": data}
+                else:
+                    logger.warning(f"Termii Voice OTP HTTP {resp.status_code}: {resp.text}")
+        except Exception as e:
+            logger.error(f"Termii Voice OTP dispatch failed: {e}")
+
+    # 2. Text / WhatsApp Channel
+    sms_url = f"{base_url}/api/sms/send"
+    sms_text = f"Your CampusStash verification code is {otp_code}. Valid for 10 minutes. Do not share this code with anyone."
 
     try:
         async with httpx.AsyncClient(timeout=12.0) as client:
-            # 1. Discover active sender ID from account
+            # Discover active sender ID from account
             approved_sender = await get_termii_approved_sender_id(api_key, client)
             
-            # Priority list of sender IDs to try (approved 'OE Alert' via 'dnd' first)
             candidate_senders = ["OE Alert"]
             if settings.TERMII_SENDER_ID and settings.TERMII_SENDER_ID not in candidate_senders:
                 candidate_senders.append(settings.TERMII_SENDER_ID)
@@ -119,40 +148,51 @@ async def send_phone_otp(phone: str, otp_code: str, channel: str = "sms") -> dic
                 if default_s not in candidate_senders:
                     candidate_senders.append(default_s)
 
-            # Determine channels based on preference (WhatsApp vs SMS)
-            if str(channel).lower() == "whatsapp":
+            if channel_clean == "whatsapp":
                 channels_to_try = ["whatsapp", "dnd", "generic"]
             else:
                 channels_to_try = ["dnd", "generic", "whatsapp"]
+
             for s_id in candidate_senders:
-                for channel in channels_to_try:
+                for ch in channels_to_try:
                     payload = {
                         "to": normalized,
                         "from": s_id,
                         "sms": sms_text,
                         "type": "plain",
-                        "channel": channel,
+                        "channel": ch,
                         "api_key": api_key
                     }
                     try:
-                        resp = await client.post(url, json=payload)
+                        resp = await client.post(sms_url, json=payload)
                         if resp.status_code == 200:
                             data = resp.json()
                             if data.get("message") == "Successfully Sent":
-                                logger.info(f"Termii SMS sent successfully via sender '{s_id}' channel '{channel}'")
-                                return {"success": True, "provider": "termii", "data": data}
+                                logger.info(f"Termii SMS sent successfully via sender '{s_id}' channel '{ch}'")
+                                return {"success": True, "provider": "termii", "channel": ch, "data": data}
                             else:
-                                logger.warning(f"Termii response with sender '{s_id}' channel '{channel}': {data}")
+                                logger.warning(f"Termii response with sender '{s_id}' channel '{ch}': {data}")
                         else:
-                            logger.warning(f"Termii HTTP {resp.status_code} with sender '{s_id}' channel '{channel}': {resp.text}")
+                            logger.warning(f"Termii HTTP {resp.status_code} with sender '{s_id}' channel '{ch}': {resp.text}")
                     except Exception as send_err:
-                        logger.warning(f"Attempt with sender '{s_id}' failed: {send_err}")
+                        logger.warning(f"Attempt with sender '{s_id}' channel '{ch}' failed: {send_err}")
 
-            # If all live Termii attempts fail (e.g. sender ID not approved or account awaiting review)
+            # If all live Termii SMS attempts fail, try voice call as emergency fallback
+            try:
+                voice_url = f"{base_url}/api/sms/otp/send/voice"
+                numeric_code = int(re.sub(r"[^\d]", "", str(otp_code)))
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.post(voice_url, json={"api_key": api_key, "phone_number": normalized, "code": numeric_code})
+                    if resp.status_code == 200:
+                        return {"success": True, "provider": "termii_voice_fallback", "channel": "voice", "data": resp.json()}
+            except Exception:
+                pass
+
             logger.warning(f"Termii delivery could not be completed. Falling back to dev verification.")
             return {
                 "success": True, 
                 "provider": "termii_fallback", 
+                "channel": channel_clean,
                 "message": "Verification code generated (fallback mode active)",
                 "dev_code": otp_code
             }
@@ -162,6 +202,7 @@ async def send_phone_otp(phone: str, otp_code: str, channel: str = "sms") -> dic
         return {
             "success": True, 
             "provider": "fallback_dev", 
+            "channel": channel_clean,
             "message": f"Error reaching SMS gateway: {e}",
             "dev_code": otp_code
         }

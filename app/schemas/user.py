@@ -27,7 +27,7 @@ UserCreate = UserRegister
 
 class SendOtpRequest(BaseModel):
     phone: str = Field(..., description="Phone number to receive OTP (e.g. 08012345678 or +234...)")
-    channel: Optional[str] = Field("sms", description="Delivery channel: 'sms' or 'whatsapp'")
+    channel: Optional[str] = Field("sms", description="Delivery channel: 'sms', 'whatsapp', or 'voice'")
 
 class VerifyOtpRequest(BaseModel):
     phone: str = Field(..., description="Phone number being verified")
@@ -35,7 +35,7 @@ class VerifyOtpRequest(BaseModel):
 
 class ForgotPasswordSendOtpRequest(BaseModel):
     phone: str = Field(..., description="Registered phone number for account recovery")
-    channel: Optional[str] = Field("sms", description="Delivery channel: 'sms' or 'whatsapp'")
+    channel: Optional[str] = Field("sms", description="Delivery channel: 'sms', 'whatsapp', or 'voice'")
 
 class ForgotPasswordResetRequest(BaseModel):
     phone: str = Field(..., description="Registered phone number")

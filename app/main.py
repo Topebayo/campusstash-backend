@@ -114,7 +114,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description='A privacy-first, anonymous campus marketplace.',
-    version='1.1.2',
+    version='1.1.3',
     lifespan=lifespan,
 )
 
@@ -188,8 +188,8 @@ async def health_check():
         'status': 'ok' if db_status == 'healthy' else 'degraded',
         'project': settings.PROJECT_NAME,
         'environment': settings.ENVIRONMENT,
-        'version': '1.1.2',
-        'features': ['whatsapp_otp', 'forgot_password', 'delete_account'],
+        'version': '1.1.3',
+        'features': ['whatsapp_otp', 'voice_otp', 'forgot_password', 'delete_account'],
         'database': db_status,
         'timestamp': time.time()
     }
