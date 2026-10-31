@@ -18,7 +18,7 @@ from app.models.user import User, PublicProfile
 from app.models.phone_verification import PhoneVerification
 from app.schemas.token import TokenResponse, RefreshTokenRequest
 from app.schemas.user import UserRegister, UserRead, LoginRequest, SendOtpRequest, VerifyOtpRequest, OtpResponse, ForgotPasswordSendOtpRequest, ForgotPasswordResetRequest
-from app.services.sms_service import normalize_phone, send_phone_otp
+from app.services.sms_service import normalize_phone, send_phone_otp, get_phone_variants
 
 router = APIRouter()
 
@@ -458,8 +458,9 @@ async def forgot_password_send_otp(
             detail="Please provide a valid Nigerian phone number."
         )
 
-    # 1. Verify that an account exists with this phone number
-    user_query = await db.execute(select(User).where(User.phone == normalized))
+    # 1. Verify that an account exists with this phone number (matching all storage formats)
+    variants = get_phone_variants(req.phone)
+    user_query = await db.execute(select(User).where(User.phone.in_(variants)))
     user = user_query.scalar_one_or_none()
     if not user:
         raise HTTPException(
@@ -568,9 +569,10 @@ async def forgot_password_reset(
             detail=f"Invalid verification code. {remaining} attempts remaining."
         )
 
-    # 1. Fetch user to update
+    # 1. Fetch user to update (matching all storage formats)
+    variants = get_phone_variants(req.phone)
     user_query = await db.execute(
-        select(User).options(selectinload(User.profile)).where(User.phone == normalized)
+        select(User).options(selectinload(User.profile)).where(User.phone.in_(variants))
     )
     user = user_query.scalar_one_or_none()
     if not user:

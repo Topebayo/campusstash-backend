@@ -31,6 +31,36 @@ def normalize_phone(phone: str) -> str:
         
     return clean
 
+def get_phone_variants(phone: str) -> list[str]:
+    """
+    Returns all valid representations of a Nigerian/international phone number
+    so database queries match regardless of whether it was stored as '080...', '234...', or '+234...'.
+    """
+    if not phone:
+        return []
+    clean = re.sub(r"[^\d]", "", str(phone).strip())
+    variants = set()
+    if clean:
+        variants.add(clean)
+    if clean.startswith("234") and len(clean) >= 12:
+        local = "0" + clean[3:]
+        variants.add(local)
+        variants.add("+" + clean)
+        variants.add(clean)
+    elif clean.startswith("0") and len(clean) == 11:
+        intl = "234" + clean[1:]
+        variants.add(intl)
+        variants.add("+" + intl)
+        variants.add(clean)
+    elif len(clean) == 10:
+        local = "0" + clean
+        intl = "234" + clean
+        variants.add(local)
+        variants.add(intl)
+        variants.add("+" + intl)
+        variants.add(clean)
+    return list(variants)
+
 async def get_termii_approved_sender_id(api_key: str, client: httpx.AsyncClient) -> str:
     """
     Queries Termii API for approved sender IDs in the current workspace.
