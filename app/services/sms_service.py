@@ -108,7 +108,7 @@ async def send_phone_otp(phone: str, otp_code: str, channel: str = "sms") -> dic
 
     # 1. Voice Call Channel: Directly dials the phone and speaks the code
     if channel_clean == "voice":
-        voice_url = f"{base_url}/api/sms/otp/send/voice"
+        voice_url = f"{base_url}/api/sms/otp/call"
         try:
             numeric_code = int(re.sub(r"[^\d]", "", str(otp_code)))
         except Exception:
@@ -179,7 +179,7 @@ async def send_phone_otp(phone: str, otp_code: str, channel: str = "sms") -> dic
 
             # If all live Termii SMS attempts fail, try voice call as emergency fallback
             try:
-                voice_url = f"{base_url}/api/sms/otp/send/voice"
+                voice_url = f"{base_url}/api/sms/otp/call"
                 numeric_code = int(re.sub(r"[^\d]", "", str(otp_code)))
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     resp = await client.post(voice_url, json={"api_key": api_key, "phone_number": normalized, "code": numeric_code})
