@@ -1,4 +1,4 @@
-﻿from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from app.core.config import settings
 
 db_url = settings.DATABASE_URL.strip()

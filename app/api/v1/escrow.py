@@ -1,4 +1,4 @@
-﻿import uuid
+import uuid
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession

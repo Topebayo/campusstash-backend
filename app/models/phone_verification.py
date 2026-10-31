@@ -1,4 +1,4 @@
-﻿import uuid
+import uuid
 from datetime import datetime, timezone
 from sqlalchemy import String, Boolean, DateTime, Integer, func
 from sqlalchemy.orm import Mapped, mapped_column

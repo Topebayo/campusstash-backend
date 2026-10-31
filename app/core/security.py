@@ -1,4 +1,4 @@
-﻿import re
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 from passlib.context import CryptContext

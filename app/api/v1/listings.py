@@ -1,4 +1,4 @@
-﻿import os
+import os
 import uuid
 import base64
 from typing import Any, List, Optional

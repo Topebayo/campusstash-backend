@@ -1,4 +1,4 @@
-﻿import uuid
+import uuid
 import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional

@@ -1,4 +1,4 @@
-﻿import os
+import os
 import time
 import logging
 import traceback
@@ -114,7 +114,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description='A privacy-first, anonymous campus marketplace.',
-    version='1.0.0',
+    version='1.1.0',
     lifespan=lifespan,
 )
 
@@ -188,6 +188,8 @@ async def health_check():
         'status': 'ok' if db_status == 'healthy' else 'degraded',
         'project': settings.PROJECT_NAME,
         'environment': settings.ENVIRONMENT,
+        'version': '1.1.0',
+        'features': ['whatsapp_otp', 'forgot_password', 'delete_account'],
         'database': db_status,
         'timestamp': time.time()
     }
