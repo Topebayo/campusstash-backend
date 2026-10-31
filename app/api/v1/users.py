@@ -1,7 +1,10 @@
+import logging
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_db, get_current_active_user

@@ -100,10 +100,17 @@ async def send_phone_verification_otp(
     if not dev_code and (not settings.TERMII_API_KEY or not settings.TERMII_API_KEY.strip()):
         dev_code = otp_code
 
-    ch_label = "WhatsApp" if str(req_channel).lower() == "whatsapp" else "SMS"
+    actual_channel = sms_res.get("channel", "sms")
+    if str(actual_channel).lower() == "whatsapp":
+        msg = f"A 6-digit verification code has been sent to +{normalized} via WhatsApp."
+    elif str(req_channel).lower() == "whatsapp":
+        msg = f"A 6-digit code has been delivered to +{normalized} via SMS text message (routed via SMS for instant delivery). Please check your text messages!"
+    else:
+        msg = f"A 6-digit verification code has been sent to +{normalized} via SMS."
+
     return OtpResponse(
         status="success",
-        message=f"A 6-digit verification code has been sent to +{normalized} via {ch_label}.",
+        message=msg,
         phone=normalized,
         dev_code=dev_code
     )
@@ -506,10 +513,17 @@ async def forgot_password_send_otp(
     if not dev_code and (not settings.TERMII_API_KEY or not settings.TERMII_API_KEY.strip()):
         dev_code = otp_code
 
-    ch_label = "WhatsApp" if str(req_channel).lower() == "whatsapp" else "SMS"
+    actual_channel = sms_res.get("channel", "sms")
+    if str(actual_channel).lower() == "whatsapp":
+        msg = f"Password reset code has been sent to +{normalized} via WhatsApp."
+    elif str(req_channel).lower() == "whatsapp":
+        msg = f"Password reset code has been delivered to +{normalized} via SMS text message (routed via SMS for instant delivery). Please check your text messages!"
+    else:
+        msg = f"Password reset code has been sent to +{normalized} via SMS."
+
     return OtpResponse(
         status="success",
-        message=f"Password reset code has been sent to +{normalized} via {ch_label}.",
+        message=msg,
         phone=normalized,
         dev_code=dev_code
     )
