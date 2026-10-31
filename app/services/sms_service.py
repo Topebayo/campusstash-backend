@@ -49,7 +49,7 @@ async def get_termii_approved_sender_id(api_key: str, client: httpx.AsyncClient)
         logger.warning(f"Could not fetch approved sender IDs from Termii: {e}")
     return "talert"
 
-async def send_phone_otp(phone: str, otp_code: str) -> dict:
+async def send_phone_otp(phone: str, otp_code: str, channel: str = "sms") -> dict:
     """
     Dispatches a 6-digit OTP verification SMS via Termii API.
     Uses approved sender ID or Termii's default trial sender ID 'talert'.
@@ -89,8 +89,11 @@ async def send_phone_otp(phone: str, otp_code: str) -> dict:
                 if default_s not in candidate_senders:
                     candidate_senders.append(default_s)
 
-            # Try approved channel 'dnd' first, then fallback to 'generic'
-            channels_to_try = ["dnd", "generic"]
+            # Determine channels based on preference (WhatsApp vs SMS)
+            if str(channel).lower() == "whatsapp":
+                channels_to_try = ["whatsapp", "dnd", "generic"]
+            else:
+                channels_to_try = ["dnd", "generic", "whatsapp"]
             for s_id in candidate_senders:
                 for channel in channels_to_try:
                     payload = {

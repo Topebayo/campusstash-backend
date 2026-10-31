@@ -112,3 +112,31 @@ async def change_password(
     current_user.hashed_password = security.get_password_hash(payload.new_password)
     await db.commit()
     return {"message": "Password updated successfully"}
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("5/minute")
+async def delete_user_me(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> None:
+    """
+    Permanently delete the current user's account and all associated data.
+    Cascades to profile, listings, images, conversations, and item requests.
+    Complies with App Store and Google Play account deletion guidelines.
+    """
+    logger.info(f"User {current_user.id} requested permanent account deletion.")
+    
+    # 1. Delete associated ItemRequests created by this user if any
+    try:
+        from app.models.campus import ItemRequest
+        await db.execute(delete(ItemRequest).where(ItemRequest.user_id == current_user.id))
+    except Exception as e:
+        logger.warning(f"Note deleting item requests: {e}")
+        
+    # 2. Delete user (SQLAlchemy cascade deletes profile, listings, images, conversations)
+    await db.delete(current_user)
+    await db.commit()
+    logger.info(f"User {current_user.id} deleted successfully.")
+    return None

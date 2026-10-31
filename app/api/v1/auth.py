@@ -17,7 +17,7 @@ from app.core.limiter import limiter
 from app.models.user import User, PublicProfile
 from app.models.phone_verification import PhoneVerification
 from app.schemas.token import TokenResponse, RefreshTokenRequest
-from app.schemas.user import UserRegister, UserRead, LoginRequest, SendOtpRequest, VerifyOtpRequest, OtpResponse
+from app.schemas.user import UserRegister, UserRead, LoginRequest, SendOtpRequest, VerifyOtpRequest, OtpResponse, ForgotPasswordSendOtpRequest, ForgotPasswordResetRequest
 from app.services.sms_service import normalize_phone, send_phone_otp
 
 router = APIRouter()
@@ -92,16 +92,18 @@ async def send_phone_verification_otp(
     db.add(pv)
     await db.commit()
 
-    # 4. Dispatch SMS via Termii
-    sms_res = await send_phone_otp(normalized, otp_code)
+    # 4. Dispatch OTP via Termii (SMS or WhatsApp)
+    req_channel = getattr(req, "channel", "sms") or "sms"
+    sms_res = await send_phone_otp(normalized, otp_code, channel=req_channel)
 
     dev_code = sms_res.get("dev_code")
     if not dev_code and (not settings.TERMII_API_KEY or not settings.TERMII_API_KEY.strip()):
         dev_code = otp_code
 
+    ch_label = "WhatsApp" if str(req_channel).lower() == "whatsapp" else "SMS"
     return OtpResponse(
         status="success",
-        message=f"A 6-digit verification code has been sent to +{normalized}.",
+        message=f"A 6-digit verification code has been sent to +{normalized} via {ch_label}.",
         phone=normalized,
         dev_code=dev_code
     )
@@ -434,3 +436,154 @@ async def read_current_user_profile(
     Requires Bearer token in Authorization header.
     """
     return current_user
+
+
+# ─── Password Recovery Endpoints ─────────────────────────────────────────────
+
+@router.post("/forgot-password/send-otp", response_model=OtpResponse)
+@limiter.limit("3/minute")
+async def forgot_password_send_otp(
+    request: Request,
+    req: ForgotPasswordSendOtpRequest,
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """
+    Dispatch password reset OTP code to registered user's phone via SMS or WhatsApp.
+    Rate limited to 3 requests per minute per IP.
+    """
+    normalized = normalize_phone(req.phone)
+    if not normalized or len(normalized) < 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please provide a valid Nigerian phone number."
+        )
+
+    # 1. Verify that an account exists with this phone number
+    user_query = await db.execute(select(User).where(User.phone == normalized))
+    user = user_query.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No CampusStash account found with this phone number. Please check the number or sign up."
+        )
+
+    # 2. Anti-spam Rate limit: 60 seconds check
+    now_utc = datetime.now(timezone.utc)
+    reset_key = f"reset:{normalized}"
+    recent_query = await db.execute(
+        select(PhoneVerification)
+        .where(PhoneVerification.phone == reset_key)
+        .order_by(PhoneVerification.created_at.desc())
+    )
+    latest = recent_query.scalars().first()
+    if latest and (now_utc - latest.created_at).total_seconds() < 60:
+        remaining = int(60 - (now_utc - latest.created_at).total_seconds())
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Please wait {remaining} seconds before requesting another code."
+        )
+
+    # 3. Generate cryptographic 6-digit OTP
+    otp_code = f"{secrets.randbelow(900000) + 100000}"
+    expires_at = now_utc + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+
+    pv = PhoneVerification(
+        phone=reset_key,
+        otp_code=otp_code,
+        expires_at=expires_at,
+        is_verified=False,
+        attempts=0
+    )
+    db.add(pv)
+    await db.commit()
+
+    # 4. Dispatch OTP via Termii (SMS or WhatsApp)
+    req_channel = getattr(req, "channel", "sms") or "sms"
+    sms_res = await send_phone_otp(normalized, otp_code, channel=req_channel)
+
+    dev_code = sms_res.get("dev_code")
+    if not dev_code and (not settings.TERMII_API_KEY or not settings.TERMII_API_KEY.strip()):
+        dev_code = otp_code
+
+    ch_label = "WhatsApp" if str(req_channel).lower() == "whatsapp" else "SMS"
+    return OtpResponse(
+        status="success",
+        message=f"Password reset code has been sent to +{normalized} via {ch_label}.",
+        phone=normalized,
+        dev_code=dev_code
+    )
+
+
+@router.post("/forgot-password/reset", response_model=TokenResponse)
+@limiter.limit("5/minute")
+async def forgot_password_reset(
+    request: Request,
+    req: ForgotPasswordResetRequest,
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """
+    Validate recovery OTP code and update user password.
+    Returns new access token so user is logged in immediately.
+    """
+    normalized = normalize_phone(req.phone)
+    if not normalized:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid phone number."
+        )
+
+    reset_key = f"reset:{normalized}"
+    now_utc = datetime.now(timezone.utc)
+    query = await db.execute(
+        select(PhoneVerification)
+        .where(PhoneVerification.phone == reset_key)
+        .order_by(PhoneVerification.created_at.desc())
+    )
+    pv = query.scalars().first()
+
+    if not pv:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active password reset request found. Please request a new code."
+        )
+
+    if now_utc > pv.expires_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reset code has expired. Please request a new code."
+        )
+
+    if pv.attempts >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Maximum verification attempts exceeded. Please request a new code."
+        )
+
+    if pv.otp_code != req.otp_code.strip():
+        pv.attempts += 1
+        await db.commit()
+        remaining = 5 - pv.attempts
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid verification code. {remaining} attempts remaining."
+        )
+
+    # 1. Fetch user to update
+    user_query = await db.execute(
+        select(User).options(selectinload(User.profile)).where(User.phone == normalized)
+    )
+    user = user_query.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User account could not be found."
+        )
+
+    # 2. Update password hash
+    user.hashed_password = security.get_password_hash(req.new_password)
+    pv.is_verified = True
+    await db.commit()
+    await db.refresh(user)
+
+    logger.info(f"Password reset successfully for user {user.id} ({normalized})")
+    return build_token_response(user)
