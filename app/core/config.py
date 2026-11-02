@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     AWS_REGION: str = "us-east-1"
     S3_BUCKET_NAME: str = "campusstash-uploads"
 
+    # Resend Email OTP
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = "CampusStash <auth@salesaiflow.online>"
+
     # Termii SMS & WhatsApp OTP
     ENABLE_LIVE_SMS: bool = True  # Set to True when ready to burn live Termii credits
     TERMII_API_KEY: str = ""

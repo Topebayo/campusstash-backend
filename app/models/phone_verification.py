@@ -7,7 +7,7 @@ from app.models.base_class import Base
 class PhoneVerification(Base):
     __tablename__ = "phone_verification"
 
-    phone: Mapped[str] = mapped_column(String(50), index=True, nullable=False)
+    phone: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
     otp_code: Mapped[str] = mapped_column(String(10), nullable=False)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

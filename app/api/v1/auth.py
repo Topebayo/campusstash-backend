@@ -22,6 +22,7 @@ from app.models.phone_verification import PhoneVerification
 from app.schemas.token import TokenResponse, RefreshTokenRequest
 from app.schemas.user import UserRegister, UserRead, LoginRequest, SendOtpRequest, VerifyOtpRequest, OtpResponse, ForgotPasswordSendOtpRequest, ForgotPasswordResetRequest
 from app.services.sms_service import normalize_phone, send_phone_otp, get_phone_variants
+from app.services.email_service import send_email_otp
 
 router = APIRouter()
 
@@ -47,11 +48,73 @@ async def send_phone_verification_otp(
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """
-    Generate and dispatch a 6-digit OTP verification code via Termii SMS.
-    Normalizes Nigerian phone numbers (080... -> 23480...).
+    Generate and dispatch a 6-digit OTP verification code via Termii SMS, WhatsApp, or Resend Email.
     Rate limited to 3 requests per minute per IP.
     """
-    normalized = normalize_phone(req.phone)
+    now_utc = datetime.now(timezone.utc)
+    req_channel = getattr(req, "channel", "sms") or "sms"
+    raw_phone = (req.phone or "").strip()
+    raw_email = (req.email or "").strip().lower()
+
+    # Detect email channel
+    is_email_channel = req_channel == "email" or bool(raw_email) or ("@" in raw_phone)
+    if is_email_channel:
+        target_email = raw_email or raw_phone.lower()
+        if not target_email or "@" not in target_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Please provide a valid email address."
+            )
+
+        # Check if email is already registered
+        existing = await db.execute(select(User).where(User.email == target_email))
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This email address is already registered to an existing account. Please log in instead."
+            )
+
+        verification_key = f"email:{target_email}"
+        recent_query = await db.execute(
+            select(PhoneVerification)
+            .where(PhoneVerification.phone == verification_key)
+            .order_by(PhoneVerification.created_at.desc())
+        )
+        latest = recent_query.scalars().first()
+        if latest and (now_utc - latest.created_at).total_seconds() < 60:
+            remaining = int(60 - (now_utc - latest.created_at).total_seconds())
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Please wait {remaining} seconds before requesting another code."
+            )
+
+        otp_code = f"{secrets.randbelow(900000) + 100000}"
+        expires_at = now_utc + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+
+        pv = PhoneVerification(
+            phone=verification_key,
+            otp_code=otp_code,
+            expires_at=expires_at,
+            is_verified=False,
+            attempts=0
+        )
+        db.add(pv)
+        await db.commit()
+
+        email_res = await send_email_otp(target_email, otp_code, purpose="verification")
+        dev_code = email_res.get("dev_code")
+        if not dev_code and (not getattr(settings, "RESEND_API_KEY", None)):
+            dev_code = otp_code
+
+        return OtpResponse(
+            status="success",
+            message=f"Verification code delivered to {target_email}. Check your inbox or spam folder!",
+            email=target_email,
+            dev_code=dev_code
+        )
+
+    # Phone channel (SMS or WhatsApp)
+    normalized = normalize_phone(raw_phone)
     if not normalized or len(normalized) < 10:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -67,7 +130,6 @@ async def send_phone_verification_otp(
         )
 
     # 2. Anti-spam Rate limit: 60 seconds check
-    now_utc = datetime.now(timezone.utc)
     recent_query = await db.execute(
         select(PhoneVerification)
         .where(PhoneVerification.phone == normalized)
@@ -96,7 +158,6 @@ async def send_phone_verification_otp(
     await db.commit()
 
     # 4. Dispatch OTP via Termii (SMS or WhatsApp)
-    req_channel = getattr(req, "channel", "sms") or "sms"
     sms_res = await send_phone_otp(normalized, otp_code, channel=req_channel)
 
     dev_code = sms_res.get("dev_code")
@@ -104,14 +165,8 @@ async def send_phone_verification_otp(
         dev_code = otp_code
 
     actual_channel = sms_res.get("channel", req_channel)
-    if sms_res.get("voice_fallback"):
-        msg = f"Voice Call route is inactive on this gateway. A 6-digit verification code was delivered to +{normalized} via SMS text message instead."
-    elif str(actual_channel).lower() == "voice" and sms_res.get("success"):
-        msg = f"Calling +{normalized} now with your 6-digit verification code. Please answer the phone!"
-    elif str(actual_channel).lower() == "whatsapp":
+    if str(actual_channel).lower() == "whatsapp":
         msg = f"A 6-digit verification code has been sent to +{normalized} via WhatsApp."
-    elif str(req_channel).lower() == "whatsapp":
-        msg = f"A 6-digit code has been delivered to +{normalized} via SMS text message (routed via SMS for instant delivery). Please check your text messages!"
     else:
         s_id = sms_res.get("sender_id")
         tag = f" (via {s_id})" if s_id else ""
@@ -133,20 +188,28 @@ async def verify_phone_otp(
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """
-    Verify the 6-digit OTP code sent to user's phone number.
+    Verify the 6-digit OTP code sent to user's phone number or email.
     Rate limited to 5 verification attempts per minute.
     """
-    normalized = normalize_phone(req.phone)
-    if not normalized:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid phone number."
-        )
+    raw_phone = (req.phone or "").strip()
+    raw_email = (req.email or "").strip().lower()
+
+    if raw_email or "@" in raw_phone or raw_phone.startswith("email:"):
+        target_email = raw_email or raw_phone.replace("email:", "").strip().lower()
+        verification_key = f"email:{target_email}"
+    else:
+        normalized = normalize_phone(raw_phone)
+        if not normalized:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid phone number."
+            )
+        verification_key = normalized
 
     now_utc = datetime.now(timezone.utc)
     query = await db.execute(
         select(PhoneVerification)
-        .where(PhoneVerification.phone == normalized)
+        .where(PhoneVerification.phone == verification_key)
         .order_by(PhoneVerification.created_at.desc())
     )
     pv = query.scalars().first()
@@ -154,7 +217,7 @@ async def verify_phone_otp(
     if not pv:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No verification code was requested for this phone number."
+            detail="No verification code was requested for this identifier."
         )
 
     if pv.expires_at < now_utc:
@@ -189,8 +252,8 @@ async def verify_phone_otp(
 
     return OtpResponse(
         status="success",
-        message="Phone number verified successfully!",
-        phone=normalized
+        message="Identity verified successfully! You can now complete your registration.",
+        phone=verification_key
     )
 
 
@@ -464,10 +527,72 @@ async def forgot_password_send_otp(
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """
-    Dispatch password reset OTP code to registered user's phone via SMS or WhatsApp.
+    Dispatch password reset OTP code to registered user via SMS, WhatsApp, or Resend Email.
     Rate limited to 3 requests per minute per IP.
     """
-    normalized = normalize_phone(req.phone)
+    now_utc = datetime.now(timezone.utc)
+    raw_phone = (req.phone or "").strip()
+    raw_email = (req.email or "").strip().lower()
+    req_channel = getattr(req, "channel", "sms") or "sms"
+
+    is_email = (req_channel == "email") or bool(raw_email) or ("@" in raw_phone)
+    if is_email:
+        target_email = raw_email or raw_phone.lower()
+        if not target_email or "@" not in target_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Please provide a valid registered email address."
+            )
+
+        user_query = await db.execute(select(User).where(User.email == target_email))
+        user = user_query.scalar_one_or_none()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No CampusStash account found with this email address. Please check your spelling or sign up."
+            )
+
+        reset_key = f"reset:{target_email}"
+        recent_query = await db.execute(
+            select(PhoneVerification)
+            .where(PhoneVerification.phone == reset_key)
+            .order_by(PhoneVerification.created_at.desc())
+        )
+        latest = recent_query.scalars().first()
+        if latest and (now_utc - latest.created_at).total_seconds() < 60:
+            remaining = int(60 - (now_utc - latest.created_at).total_seconds())
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Please wait {remaining} seconds before requesting another code."
+            )
+
+        otp_code = f"{secrets.randbelow(900000) + 100000}"
+        expires_at = now_utc + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+
+        pv = PhoneVerification(
+            phone=reset_key,
+            otp_code=otp_code,
+            expires_at=expires_at,
+            is_verified=False,
+            attempts=0
+        )
+        db.add(pv)
+        await db.commit()
+
+        email_res = await send_email_otp(target_email, otp_code, purpose="reset")
+        dev_code = email_res.get("dev_code")
+        if not dev_code and (not getattr(settings, "RESEND_API_KEY", None)):
+            dev_code = otp_code
+
+        return OtpResponse(
+            status="success",
+            message=f"Password reset code has been sent to your email ({target_email}). Check your inbox or spam folder!",
+            email=target_email,
+            dev_code=dev_code
+        )
+
+    # Phone recovery route (SMS or WhatsApp)
+    normalized = normalize_phone(raw_phone)
     if not normalized or len(normalized) < 10:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -475,7 +600,7 @@ async def forgot_password_send_otp(
         )
 
     # 1. Verify that an account exists with this phone number (matching all storage formats)
-    variants = get_phone_variants(req.phone)
+    variants = get_phone_variants(raw_phone)
     user_query = await db.execute(select(User).where(User.phone.in_(variants)))
     user = user_query.scalar_one_or_none()
     if not user:
@@ -485,7 +610,6 @@ async def forgot_password_send_otp(
         )
 
     # 2. Anti-spam Rate limit: 60 seconds check
-    now_utc = datetime.now(timezone.utc)
     reset_key = f"reset:{normalized}"
     recent_query = await db.execute(
         select(PhoneVerification)
@@ -515,7 +639,6 @@ async def forgot_password_send_otp(
     await db.commit()
 
     # 4. Dispatch OTP via Termii (SMS or WhatsApp)
-    req_channel = getattr(req, "channel", "sms") or "sms"
     sms_res = await send_phone_otp(normalized, otp_code, channel=req_channel)
 
     dev_code = sms_res.get("dev_code")
@@ -523,14 +646,8 @@ async def forgot_password_send_otp(
         dev_code = otp_code
 
     actual_channel = sms_res.get("channel", req_channel)
-    if sms_res.get("voice_fallback"):
-        msg = f"Voice Call route is inactive on this gateway. A 6-digit recovery code was delivered to +{normalized} via SMS text message instead."
-    elif str(actual_channel).lower() == "voice" and sms_res.get("success"):
-        msg = f"Calling +{normalized} now with your password recovery code. Please answer the phone!"
-    elif str(actual_channel).lower() == "whatsapp":
+    if str(actual_channel).lower() == "whatsapp":
         msg = f"Password reset code has been sent to +{normalized} via WhatsApp."
-    elif str(req_channel).lower() == "whatsapp":
-        msg = f"Password reset code has been delivered to +{normalized} via SMS text message (routed via SMS for instant delivery). Please check your text messages!"
     else:
         s_id = sms_res.get("sender_id")
         tag = f" (via {s_id})" if s_id else ""
@@ -555,14 +672,24 @@ async def forgot_password_reset(
     Validate recovery OTP code and update user password.
     Returns new access token so user is logged in immediately.
     """
-    normalized = normalize_phone(req.phone)
-    if not normalized:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid phone number."
-        )
+    raw_phone = (req.phone or "").strip()
+    raw_email = (req.email or "").strip().lower()
 
-    reset_key = f"reset:{normalized}"
+    is_email = bool(raw_email) or ("@" in raw_phone)
+    if is_email:
+        target_email = raw_email or raw_phone.lower()
+        reset_key = f"reset:{target_email}"
+        identifier_display = target_email
+    else:
+        normalized = normalize_phone(raw_phone)
+        if not normalized:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid phone number."
+            )
+        reset_key = f"reset:{normalized}"
+        identifier_display = normalized
+
     now_utc = datetime.now(timezone.utc)
     query = await db.execute(
         select(PhoneVerification)
@@ -603,11 +730,16 @@ async def forgot_password_reset(
             detail=f"Invalid verification code. {remaining} attempts remaining."
         )
 
-    # 1. Fetch user to update (matching all storage formats)
-    variants = get_phone_variants(req.phone)
-    user_query = await db.execute(
-        select(User).options(selectinload(User.profile)).where(User.phone.in_(variants))
-    )
+    # 1. Fetch user to update
+    if is_email:
+        user_query = await db.execute(
+            select(User).options(selectinload(User.profile)).where(User.email == target_email)
+        )
+    else:
+        variants = get_phone_variants(raw_phone)
+        user_query = await db.execute(
+            select(User).options(selectinload(User.profile)).where(User.phone.in_(variants))
+        )
     user = user_query.scalar_one_or_none()
     if not user:
         raise HTTPException(
@@ -621,5 +753,5 @@ async def forgot_password_reset(
     await db.commit()
     await db.refresh(user)
 
-    logger.info(f"Password reset successfully for user {user.id} ({normalized})")
+    logger.info(f"Password reset successfully for user {user.id} ({identifier_display})")
     return build_token_response(user)

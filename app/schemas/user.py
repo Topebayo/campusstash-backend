@@ -26,19 +26,23 @@ UserCreate = UserRegister
 
 
 class SendOtpRequest(BaseModel):
-    phone: str = Field(..., description="Phone number to receive OTP (e.g. 08012345678 or +234...)")
-    channel: Optional[str] = Field("sms", description="Delivery channel: 'sms', 'whatsapp', or 'voice'")
+    phone: Optional[str] = Field(None, description="Phone number to receive OTP (e.g. 08012345678 or +234...)")
+    email: Optional[EmailStr] = Field(None, description="Student email to receive OTP")
+    channel: Optional[str] = Field("sms", description="Delivery channel: 'sms', 'whatsapp', or 'email'")
 
 class VerifyOtpRequest(BaseModel):
-    phone: str = Field(..., description="Phone number being verified")
+    phone: Optional[str] = Field(None, description="Phone number being verified")
+    email: Optional[EmailStr] = Field(None, description="Student email being verified")
     otp_code: str = Field(..., min_length=4, max_length=10, description="Verification code received")
 
 class ForgotPasswordSendOtpRequest(BaseModel):
-    phone: str = Field(..., description="Registered phone number for account recovery")
-    channel: Optional[str] = Field("sms", description="Delivery channel: 'sms', 'whatsapp', or 'voice'")
+    phone: Optional[str] = Field(None, description="Registered phone number or email for account recovery")
+    email: Optional[EmailStr] = Field(None, description="Registered email address for account recovery")
+    channel: Optional[str] = Field("sms", description="Delivery channel: 'sms', 'whatsapp', or 'email'")
 
 class ForgotPasswordResetRequest(BaseModel):
-    phone: str = Field(..., description="Registered phone number")
+    phone: Optional[str] = Field(None, description="Registered phone number")
+    email: Optional[EmailStr] = Field(None, description="Registered email address")
     otp_code: str = Field(..., min_length=4, max_length=10, description="Verification code received")
     new_password: str = Field(..., min_length=8, description="New password (minimum 8 characters)")
 
@@ -46,6 +50,7 @@ class OtpResponse(BaseModel):
     status: str
     message: str
     phone: Optional[str] = None
+    email: Optional[str] = None
     dev_code: Optional[str] = None
 
 class LoginRequest(BaseModel):
