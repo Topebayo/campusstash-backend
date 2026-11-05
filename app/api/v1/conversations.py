@@ -162,6 +162,43 @@ async def get_conversation_messages(
     )
 
 
+@router.post("/{conversation_id}/read")
+@router.patch("/{conversation_id}/read")
+async def mark_conversation_as_read(
+    conversation_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    """
+    Explicitly mark all unread messages from counterparty in conversation as read.
+    """
+    conv_res = await db.execute(
+        select(Conversation).where(Conversation.id == conversation_id)
+    )
+    conversation = conv_res.scalar_one_or_none()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if current_user.id not in (conversation.buyer_id, conversation.seller_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Forbidden: Not authorized to access this conversation"
+        )
+
+    await db.execute(
+        update(Message)
+        .where(
+            Message.conversation_id == conversation_id,
+            Message.sender_id != current_user.id,
+            Message.is_read == False
+        )
+        .values(is_read=True)
+    )
+    await db.commit()
+
+    return {"status": "ok", "unread_count": 0, "conversation_id": str(conversation_id)}
+
+
 @router.post("", response_model=ConversationRead, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=ConversationRead, status_code=status.HTTP_201_CREATED)
 @limiter.limit("20/minute")

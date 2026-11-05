@@ -138,14 +138,26 @@ async def chat_websocket_endpoint(
 
             # 5. Persist to PostgreSQL messages table with verified user.id as sender
             async with AsyncSessionLocal() as session:
+                # Check if recipient is active in the same chat room right now
+                is_counterparty_in_room = recipient_id in manager.get_online_users_in_conversation(conv_uuid)
                 msg = Message(
                     conversation_id=conv_uuid,
                     sender_id=user.id,
                     text=cleaned_text,
-                    is_read=False,
+                    is_read=is_counterparty_in_room,
                     timestamp=datetime.now(timezone.utc)
                 )
                 session.add(msg)
+                # When responding, mark all previous counterparty messages as read
+                await session.execute(
+                    update(Message)
+                    .where(
+                        Message.conversation_id == conv_uuid,
+                        Message.sender_id != user.id,
+                        Message.is_read == False
+                    )
+                    .values(is_read=True)
+                )
                 # Touch conversation timestamp
                 await session.execute(
                     update(Conversation).where(Conversation.id == conv_uuid).values(updated_at=func.now())
