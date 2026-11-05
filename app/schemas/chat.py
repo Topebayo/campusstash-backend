@@ -49,6 +49,9 @@ class ConversationRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     listing_title: Optional[str] = None
+    listing_price: Optional[int] = None
+    listing_price_kobo: Optional[int] = None
+    listing_image_url: Optional[str] = None
     other_user: Optional[ParticipantRead] = None
     last_message: Optional[str] = None
     last_message_time: Optional[datetime] = None

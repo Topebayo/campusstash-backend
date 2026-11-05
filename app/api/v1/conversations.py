@@ -66,10 +66,19 @@ def format_conversation_read(conv: Conversation, current_user_id: uuid.UUID, unr
         last_time = sorted_msgs[-1].timestamp
 
     listing_title = None
+    listing_price = None
+    listing_price_kobo = None
+    listing_image_url = None
     if conv.listing:
         listing_title = conv.listing.title
+        listing_price = conv.listing.price
+        listing_price_kobo = conv.listing.price
+        listing_image_url = conv.listing.image_url
     elif getattr(conv, "item_request", None) and conv.item_request:
         listing_title = f"Wanted: {conv.item_request.title}"
+        budget = conv.item_request.budget_kobo or (conv.item_request.budget_naira * 100 if conv.item_request.budget_naira else None)
+        listing_price = budget
+        listing_price_kobo = budget
 
     return ConversationRead(
         id=conv.id,
@@ -80,6 +89,9 @@ def format_conversation_read(conv: Conversation, current_user_id: uuid.UUID, unr
         created_at=conv.created_at,
         updated_at=conv.updated_at,
         listing_title=listing_title,
+        listing_price=listing_price,
+        listing_price_kobo=listing_price_kobo,
+        listing_image_url=listing_image_url,
         other_user=participant,
         last_message=last_msg,
         last_message_time=last_time,
