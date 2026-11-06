@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import List
+from typing import List, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger("campusstash.security")
@@ -29,9 +29,9 @@ class Settings(BaseSettings):
     STORAGE_PROVIDER: str = "cloudinary"  # "cloudinary" or "s3"
     
     # Cloudinary Config
-    CLOUDINARY_CLOUD_NAME: str = "campusstash"
-    CLOUDINARY_API_KEY: str = "123456789012345"
-    CLOUDINARY_API_SECRET: str = "sample_cloudinary_secret_key"
+    CLOUDINARY_CLOUD_NAME: Optional[str] = "campusstash"
+    CLOUDINARY_API_KEY: Optional[str] = None
+    CLOUDINARY_API_SECRET: Optional[str] = None
     
     # AWS S3 Config
     AWS_ACCESS_KEY_ID: str = ""
@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     TERMII_CHANNEL: str = "dnd"
     TERMII_BASE_URL: str = "https://api.ng.termii.com"
     OTP_EXPIRE_MINUTES: int = 10
-    DEV_BYPASS_OTP: str = "123456"
+    DEV_BYPASS_OTP: Optional[str] = None
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 

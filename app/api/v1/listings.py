@@ -22,7 +22,7 @@ from app.schemas.marketplace import (
     UploadUrlRequest,
     UploadUrlResponse
 )
-from app.services.storage_service import generate_signed_upload_url
+from app.services.storage_service import generate_signed_upload_url, upload_image_to_storage
 from app.core.limiter import limiter
 
 router = APIRouter()
@@ -223,7 +223,19 @@ async def create_listing(
         category = listing_in.category
         status_val = listing_in.status
         primary_image_url = listing_in.image_url
-        additional_images = listing_in.images or []
+        if primary_image_url and str(primary_image_url).startswith("data:image"):
+            cdn_url = upload_image_to_storage(primary_image_url, folder="campusstash/listings")
+            if cdn_url:
+                primary_image_url = cdn_url
+
+        additional_images = []
+        if listing_in.images:
+            for img in listing_in.images:
+                if img and str(img).startswith("data:image"):
+                    cdn_url = upload_image_to_storage(img, folder="campusstash/listings")
+                    additional_images.append(cdn_url or img)
+                elif img:
+                    additional_images.append(img)
         if listing_in.campus_id:
             target_campus_id = listing_in.campus_id
     else:
@@ -244,22 +256,39 @@ async def create_listing(
             except Exception:
                 pass
         
-        # Check primary uploaded file if any - store persistently as base64 data URL to survive Render spin-down
+        # Check primary uploaded file if any - upload to Cloudinary CDN or fallback to base64
         uploaded_file = form.get("image")
-        if not primary_image_url and uploaded_file and hasattr(uploaded_file, "filename") and uploaded_file.filename:
+        if uploaded_file and hasattr(uploaded_file, "filename") and uploaded_file.filename:
             contents = await uploaded_file.read()
             mime = getattr(uploaded_file, "content_type", None) or "image/jpeg"
-            b64_str = base64.b64encode(contents).decode("utf-8")
-            primary_image_url = f"data:{mime};base64,{b64_str}"
+            cdn_url = upload_image_to_storage(contents, folder="campusstash/listings")
+            if cdn_url:
+                primary_image_url = cdn_url
+            else:
+                b64_str = base64.b64encode(contents).decode("utf-8")
+                primary_image_url = f"data:{mime};base64,{b64_str}"
+        elif primary_image_url and str(primary_image_url).startswith("data:image"):
+            cdn_url = upload_image_to_storage(primary_image_url, folder="campusstash/listings")
+            if cdn_url:
+                primary_image_url = cdn_url
 
         # Check secondary / detail image if provided in form
         secondary_image_url = form.get("image_2_url") or form.get("secondary_image_url") or None
         uploaded_file_2 = form.get("image_2") or form.get("secondary_image")
-        if not secondary_image_url and uploaded_file_2 and hasattr(uploaded_file_2, "filename") and uploaded_file_2.filename:
+        if uploaded_file_2 and hasattr(uploaded_file_2, "filename") and uploaded_file_2.filename:
             contents_2 = await uploaded_file_2.read()
             mime_2 = getattr(uploaded_file_2, "content_type", None) or "image/jpeg"
-            b64_str_2 = base64.b64encode(contents_2).decode("utf-8")
-            secondary_image_url = f"data:{mime_2};base64,{b64_str_2}"
+            cdn_url_2 = upload_image_to_storage(contents_2, folder="campusstash/listings")
+            if cdn_url_2:
+                secondary_image_url = cdn_url_2
+            else:
+                b64_str_2 = base64.b64encode(contents_2).decode("utf-8")
+                secondary_image_url = f"data:{mime_2};base64,{b64_str_2}"
+        elif secondary_image_url and str(secondary_image_url).startswith("data:image"):
+            cdn_url_2 = upload_image_to_storage(secondary_image_url, folder="campusstash/listings")
+            if cdn_url_2:
+                secondary_image_url = cdn_url_2
+
         if secondary_image_url:
             additional_images.append(secondary_image_url)
 
@@ -585,17 +614,28 @@ async def update_listing(
     if listing_in.campus_id is not None:
         listing.campus_id = listing_in.campus_id
     if listing_in.image_url:
-        listing.image_url = listing_in.image_url
+        new_primary = listing_in.image_url
+        if str(new_primary).startswith("data:image"):
+            cdn_url = upload_image_to_storage(new_primary, folder="campusstash/listings")
+            if cdn_url:
+                new_primary = cdn_url
+        listing.image_url = new_primary
     if listing_in.status:
         listing.status = listing_in.status
     if listing_in.images is not None:
-        target_primary = listing_in.image_url or listing.image_url
+        target_primary = listing.image_url
         new_img_objs = []
         if target_primary:
             new_img_objs.append(ListingImage(listing_id=listing.id, image_url=target_primary, is_primary=True))
         for img_url in listing_in.images:
-            if img_url and img_url != target_primary:
-                new_img_objs.append(ListingImage(listing_id=listing.id, image_url=img_url, is_primary=False))
+            if img_url:
+                processed_url = img_url
+                if str(img_url).startswith("data:image"):
+                    cdn_url = upload_image_to_storage(img_url, folder="campusstash/listings")
+                    if cdn_url:
+                        processed_url = cdn_url
+                if processed_url != target_primary:
+                    new_img_objs.append(ListingImage(listing_id=listing.id, image_url=processed_url, is_primary=False))
         listing.images = new_img_objs
 
     await db.commit()

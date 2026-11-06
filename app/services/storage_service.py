@@ -2,7 +2,7 @@ import os
 import time
 import uuid
 import hashlib
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 import cloudinary.utils
 try:
     import boto3
@@ -12,6 +12,51 @@ except ImportError:
     Config = None
 
 from app.core.config import settings
+
+def is_cloudinary_configured() -> bool:
+    """
+    Check if valid live Cloudinary credentials are set in configuration.
+    """
+    return bool(
+        settings.CLOUDINARY_CLOUD_NAME
+        and settings.CLOUDINARY_API_KEY
+        and settings.CLOUDINARY_API_SECRET
+        and settings.CLOUDINARY_API_KEY != "123456789012345"
+        and "sample" not in str(settings.CLOUDINARY_API_SECRET)
+    )
+
+def upload_image_to_storage(
+    file_or_data: Any,
+    folder: str = "campusstash/listings",
+    public_id: Optional[str] = None
+) -> Optional[str]:
+    """
+    Directly upload an image (bytes, file, or base64 data URL) to Cloudinary.
+    Returns the secure CDN URL or None if not configured or failed.
+    """
+    if not is_cloudinary_configured():
+        return None
+
+    try:
+        import cloudinary
+        import cloudinary.uploader
+        cloudinary.config(
+            cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+            api_key=settings.CLOUDINARY_API_KEY,
+            api_secret=settings.CLOUDINARY_API_SECRET,
+            secure=True
+        )
+        res = cloudinary.uploader.upload(
+            file_or_data,
+            folder=folder,
+            public_id=public_id,
+            resource_type="image",
+            overwrite=True
+        )
+        return res.get("secure_url") or res.get("url")
+    except Exception as e:
+        print(f"[Cloudinary] Upload failed: {e}")
+        return None
 
 def generate_signed_upload_url(
     listing_id: uuid.UUID,
@@ -53,6 +98,8 @@ def generate_signed_upload_url(
         return presigned_url, public_url, "PUT", None, headers
 
     else:
+        if not is_cloudinary_configured():
+            raise ValueError("Cloudinary storage is not configured. Please set CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET in .env.")
         # Default / Cloudinary signed direct upload
         timestamp = int(time.time())
         folder = f"campusstash/listings/{listing_id}"

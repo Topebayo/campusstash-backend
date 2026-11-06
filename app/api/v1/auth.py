@@ -233,8 +233,10 @@ async def verify_phone_otp(
         )
 
     submitted_code = req.otp_code.strip()
+    is_prod = str(getattr(settings, "ENVIRONMENT", "")).lower() == "production"
+    allow_dev_bypass = (not is_prod) and bool(settings.DEV_BYPASS_OTP)
     is_valid = (submitted_code == pv.otp_code) or (
-        bool(settings.DEV_BYPASS_OTP) and submitted_code == settings.DEV_BYPASS_OTP
+        allow_dev_bypass and submitted_code == settings.DEV_BYPASS_OTP
     )
 
     if not is_valid:
@@ -717,8 +719,10 @@ async def forgot_password_reset(
         )
 
     submitted_code = req.otp_code.strip()
+    is_prod = str(getattr(settings, "ENVIRONMENT", "")).lower() == "production"
+    allow_dev_bypass = (not is_prod) and bool(settings.DEV_BYPASS_OTP)
     is_valid = (submitted_code == pv.otp_code) or (
-        bool(settings.DEV_BYPASS_OTP) and submitted_code == settings.DEV_BYPASS_OTP
+        allow_dev_bypass and submitted_code == settings.DEV_BYPASS_OTP
     )
 
     if not is_valid:
