@@ -20,7 +20,9 @@ from app.schemas.marketplace import (
     SellerProfileRead,
     PaginatedListingsResponse,
     UploadUrlRequest,
-    UploadUrlResponse
+    UploadUrlResponse,
+    BatchListingCreate,
+    StorefrontResponse
 )
 from app.services.storage_service import generate_signed_upload_url, upload_image_to_storage
 from app.core.limiter import limiter
@@ -340,6 +342,161 @@ async def create_listing(
     )
     full_listing = result.scalar_one()
     return format_listing_read(full_listing)
+
+
+@router.post("/batch", response_model=List[ListingRead], status_code=status.HTTP_201_CREATED)
+async def create_batch_listings(
+    batch_in: BatchListingCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    """
+    Vendor Batch Drop: Bulk upload up to 30 items in a single request.
+    Ideal for student campus businesses (thrift drops, accessories, restocks).
+    """
+    if not batch_in.items:
+        raise HTTPException(status_code=400, detail="No items provided in batch drop")
+
+    target_campus_id = current_user.campus_id
+    created_models = []
+
+    for item_in in batch_in.items:
+        title = item_in.title.strip() if item_in.title else ""
+        if not title:
+            continue
+        price = item_in.price if item_in.price is not None else (item_in.price_kobo or 0)
+        item_campus_id = item_in.campus_id or target_campus_id
+
+        # Handle Cloudinary upload if image is base64
+        primary_img = item_in.image_url
+        if primary_img and str(primary_img).startswith("data:image"):
+            cdn_url = upload_image_to_storage(primary_img, folder="campusstash/listings")
+            if cdn_url:
+                primary_img = cdn_url
+
+        listing = Listing(
+            seller_id=current_user.id,
+            campus_id=item_campus_id,
+            title=title,
+            description=item_in.description.strip() if item_in.description else None,
+            price=price,
+            category=item_in.category or "Other",
+            status=item_in.status or "active",
+            image_url=primary_img
+        )
+        db.add(listing)
+        await db.flush()
+
+        if primary_img:
+            db.add(ListingImage(
+                listing_id=listing.id,
+                image_url=primary_img,
+                is_primary=True
+            ))
+
+        if item_in.images:
+            for extra_img in item_in.images:
+                if extra_img and extra_img != primary_img:
+                    proc_img = extra_img
+                    if str(extra_img).startswith("data:image"):
+                        cdn = upload_image_to_storage(extra_img, folder="campusstash/listings")
+                        if cdn:
+                            proc_img = cdn
+                    db.add(ListingImage(
+                        listing_id=listing.id,
+                        image_url=proc_img,
+                        is_primary=False
+                    ))
+        created_models.append(listing)
+
+    await db.commit()
+
+    if not created_models:
+        return []
+
+    # Re-fetch with relationships for proper schema serialization
+    ids = [m.id for m in created_models]
+    result = await db.execute(
+        select(Listing)
+        .options(
+            selectinload(Listing.seller).selectinload(User.profile),
+            selectinload(Listing.images),
+            selectinload(Listing.campus)
+        )
+        .where(Listing.id.in_(ids))
+        .order_by(Listing.created_at.desc())
+    )
+    full_listings = result.scalars().all()
+    return [format_listing_read(l) for l in full_listings]
+
+
+@router.get("/store/{identifier}", response_model=StorefrontResponse)
+async def get_seller_storefront(
+    identifier: str,
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """
+    Public Vendor Storefront: Browse all active items listed by a student seller or business.
+    Accepts seller UUID or burner handle (with or without @).
+    """
+    from app.models.profile import Profile
+    seller_id = None
+    try:
+        seller_id = uuid.UUID(identifier)
+    except ValueError:
+        pass
+
+    seller_query = select(User).options(selectinload(User.profile), selectinload(User.campus))
+    if seller_id:
+        seller_query = seller_query.where(User.id == seller_id)
+    else:
+        clean_handle = identifier.lstrip("@").strip()
+        seller_query = seller_query.join(User.profile).where(
+            or_(
+                func.lower(Profile.burner_handle) == clean_handle.lower(),
+                func.lower(Profile.burner_handle) == f"@{clean_handle.lower()}"
+            )
+        )
+
+    res = await db.execute(seller_query)
+    seller = res.scalar_one_or_none()
+    if not seller:
+        raise HTTPException(status_code=404, detail="Student vendor / storefront not found")
+
+    # Fetch active listings for this seller
+    listings_res = await db.execute(
+        select(Listing)
+        .options(
+            selectinload(Listing.seller).selectinload(User.profile),
+            selectinload(Listing.images),
+            selectinload(Listing.campus)
+        )
+        .where(Listing.seller_id == seller.id, Listing.status == "active")
+        .order_by(Listing.created_at.desc())
+    )
+    items = listings_res.scalars().all()
+
+    handle = seller.profile.burner_handle if seller.profile else None
+    avatar = seller.profile.avatar_slug if seller.profile else None
+    seller_profile = SellerProfileRead(
+        id=seller.id,
+        email=seller.email,
+        name=seller.name,
+        phone=seller.phone,
+        burner_handle=handle,
+        avatar_slug=avatar
+    )
+
+    campus_name = seller.campus.name if seller.campus else None
+    campus_acronym = seller.campus.acronym if seller.campus else None
+
+    return StorefrontResponse(
+        seller=seller_profile,
+        campus_name=campus_name,
+        campus_acronym=campus_acronym,
+        total_listings=len(items),
+        items=[format_listing_read(l) for l in items]
+    )
 
 
 @router.post("/{listing_id}/upload-url", response_model=UploadUrlResponse)

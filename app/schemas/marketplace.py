@@ -136,3 +136,13 @@ class SafeDropZoneRead(BaseModel):
     location_details: Optional[str] = None
     
     model_config = ConfigDict(from_attributes=True)
+
+class BatchListingCreate(BaseModel):
+    items: List[ListingCreate] = Field(..., min_length=1, max_length=30, description="List of 1 to 30 items for batch drop")
+
+class StorefrontResponse(BaseModel):
+    seller: SellerProfileRead
+    campus_name: Optional[str] = None
+    campus_acronym: Optional[str] = None
+    total_listings: int
+    items: List[ListingRead]
