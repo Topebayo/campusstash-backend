@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -20,6 +20,7 @@ from app.schemas.chat import (
     ParticipantRead
 )
 from app.core.limiter import limiter
+from app.services.chat_manager import manager
 
 router = APIRouter()
 
@@ -296,7 +297,74 @@ async def create_or_get_conversation(
         return format_conversation_read(fresh_conv, current_user.id)
 
     if not conv_in.listing_id:
-        raise HTTPException(status_code=400, detail="Either listing_id or request_id is required")
+        if conv_in.recipient_id:
+            if conv_in.recipient_id == current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, 
+                    detail="Cannot start a conversation with yourself"
+                )
+            user_res = await db.execute(select(User).where(User.id == conv_in.recipient_id))
+            recipient = user_res.scalar_one_or_none()
+            if not recipient:
+                raise HTTPException(status_code=404, detail="Recipient user not found")
+
+            res = await db.execute(
+                select(Conversation)
+                .options(
+                    selectinload(Conversation.listing),
+                    selectinload(Conversation.item_request),
+                    selectinload(Conversation.buyer).selectinload(User.profile),
+                    selectinload(Conversation.seller).selectinload(User.profile),
+                    selectinload(Conversation.messages)
+                )
+                .where(
+                    Conversation.listing_id.is_(None),
+                    Conversation.request_id.is_(None),
+                    or_(
+                        and_(Conversation.buyer_id == current_user.id, Conversation.seller_id == conv_in.recipient_id),
+                        and_(Conversation.buyer_id == conv_in.recipient_id, Conversation.seller_id == current_user.id)
+                    )
+                )
+            )
+            existing_conv = res.scalar_one_or_none()
+            if existing_conv:
+                return format_conversation_read(existing_conv, current_user.id)
+
+            new_conv = Conversation(
+                listing_id=None,
+                request_id=None,
+                buyer_id=current_user.id,
+                seller_id=conv_in.recipient_id
+            )
+            db.add(new_conv)
+            await db.commit()
+            await db.refresh(new_conv)
+
+            if conv_in.initial_message and conv_in.initial_message.strip():
+                first_msg = Message(
+                    conversation_id=new_conv.id,
+                    sender_id=current_user.id,
+                    text=conv_in.initial_message.strip(),
+                    is_read=False
+                )
+                db.add(first_msg)
+                await db.commit()
+
+            res_loaded = await db.execute(
+                select(Conversation)
+                .options(
+                    selectinload(Conversation.listing),
+                    selectinload(Conversation.item_request),
+                    selectinload(Conversation.buyer).selectinload(User.profile),
+                    selectinload(Conversation.seller).selectinload(User.profile),
+                    selectinload(Conversation.messages)
+                )
+                .where(Conversation.id == new_conv.id)
+            )
+            fresh_conv = res_loaded.scalar_one()
+            return format_conversation_read(fresh_conv, current_user.id)
+
+        raise HTTPException(status_code=400, detail="Either listing_id, request_id, or recipient_id is required")
 
     # Verify listing exists
     list_res = await db.execute(
@@ -436,3 +504,75 @@ async def get_conversation(
 
     unread = sum(1 for m in conv.messages if m.sender_id != current_user.id and not m.is_read)
     return format_conversation_read(conv, current_user.id, unread_count=unread)
+
+
+@router.post("/{conversation_id}/messages", response_model=MessageRead, status_code=status.HTTP_201_CREATED)
+@limiter.limit("60/minute")
+async def send_conversation_message(
+    request: Request,
+    conversation_id: uuid.UUID,
+    msg_in: MessageCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    """
+    REST API fallback to send a message in a 1-on-1 conversation.
+    Broadcasts message in real time to WebSocket subscribers via Redis.
+    """
+    conv_res = await db.execute(
+        select(Conversation).where(Conversation.id == conversation_id)
+    )
+    conversation = conv_res.scalar_one_or_none()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if current_user.id not in (conversation.buyer_id, conversation.seller_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Forbidden: Not authorized to send messages in this conversation"
+        )
+
+    recipient_id = conversation.seller_id if current_user.id == conversation.buyer_id else conversation.buyer_id
+    cleaned_text = (msg_in.text or "").strip()
+    if not cleaned_text:
+        raise HTTPException(status_code=400, detail="Message text cannot be empty")
+
+    if len(cleaned_text) > 3000:
+        cleaned_text = cleaned_text[:3000]
+
+    is_counterparty_in_room = recipient_id in manager.get_online_users_in_conversation(conversation_id)
+    msg = Message(
+        conversation_id=conversation_id,
+        sender_id=current_user.id,
+        text=cleaned_text,
+        is_read=is_counterparty_in_room,
+        timestamp=datetime.now(timezone.utc)
+    )
+    db.add(msg)
+    await db.execute(
+        update(Message)
+        .where(
+            Message.conversation_id == conversation_id,
+            Message.sender_id != current_user.id,
+            Message.is_read == False
+        )
+        .values(is_read=True)
+    )
+    await db.execute(
+        update(Conversation).where(Conversation.id == conversation_id).values(updated_at=func.now())
+    )
+    await db.commit()
+    await db.refresh(msg)
+
+    msg_payload = {
+        "id": str(msg.id),
+        "conversation_id": str(conversation_id),
+        "sender_id": str(current_user.id),
+        "sender_name": current_user.name or current_user.email.split("@")[0],
+        "sender_email": current_user.email,
+        "text": msg.text,
+        "is_read": msg.is_read,
+        "timestamp": msg.timestamp.isoformat()
+    }
+    await manager.publish_to_redis(conversation_id, msg_payload)
+    return format_message_read(msg)
