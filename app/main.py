@@ -62,20 +62,74 @@ async def lifespan(app: FastAPI):
                 pass
         logger.info("Database schemas verified and synchronized successfully.")
 
-        # Seed 5 major campuses if not already seeded
+        # Seed campuses if not already seeded or update Ibadan locations
         try:
             from app.db.session import AsyncSessionLocal
             from app.models.campus import Campus
-            from sqlalchemy import select
+            from sqlalchemy import select, update
             async with AsyncSessionLocal() as session:
                 campus_check = await session.execute(select(Campus).limit(1))
                 if not campus_check.scalar_one_or_none():
                     seeded_campuses = [
                         Campus(
+                            name="Lead City University",
+                            acronym="LCU",
+                            state="Ibadan",
+                            popular_hostels=["Achievers Hall", "Peace Hall", "Senate Hall", "Honours Hall"]
+                        ),
+                        Campus(
                             name="University of Ibadan",
                             acronym="UI",
-                            state="Oyo",
+                            state="Ibadan",
                             popular_hostels=["Kuti", "Bello", "Queen Idia", "Awo", "Tedder", "Mellanby", "Zik", "Abadina", "Agbowo"]
+                        ),
+                        Campus(
+                            name="The Polytechnic, Ibadan",
+                            acronym="Poly Ibadan",
+                            state="Ibadan",
+                            popular_hostels=["North Campus", "South Campus", "Apete", "Middle Gate", "Ologuneru"]
+                        ),
+                        Campus(
+                            name="KolaDaisi University",
+                            acronym="KDU",
+                            state="Ibadan",
+                            popular_hostels=["KM 18 Ibadan-Oyo Expressway", "Kings Hall", "Queens Hall"]
+                        ),
+                        Campus(
+                            name="First Technical University",
+                            acronym="Tech-U",
+                            state="Ibadan",
+                            popular_hostels=["University Hostel", "Lagos-Ibadan Expressway", "Alomaja"]
+                        ),
+                        Campus(
+                            name="Dominican University",
+                            acronym="DU",
+                            state="Ibadan",
+                            popular_hostels=["Dominican Student Hostel", "Samonda", "Poly Road"]
+                        ),
+                        Campus(
+                            name="Precious Cornerstone University",
+                            acronym="PCU",
+                            state="Ibadan",
+                            popular_hostels=["Grace Hall", "Peace Hall", "Olaogun"]
+                        ),
+                        Campus(
+                            name="Federal College of Animal Health and Production Technology",
+                            acronym="FCAH&PT",
+                            state="Ibadan",
+                            popular_hostels=["Moor Plantation", "Apata", "College Hostel"]
+                        ),
+                        Campus(
+                            name="Federal College of Forestry",
+                            acronym="FCF",
+                            state="Ibadan",
+                            popular_hostels=["Jericho Campus", "Forestry Hall", "Dugbe"]
+                        ),
+                        Campus(
+                            name="Federal School of Statistics",
+                            acronym="FSS",
+                            state="Ibadan",
+                            popular_hostels=["Sango Campus", "UI Road"]
                         ),
                         Campus(
                             name="University of Lagos",
@@ -94,17 +148,15 @@ async def lifespan(app: FastAPI):
                             acronym="FUTA",
                             state="Ondo",
                             popular_hostels=["Jibowu", "Abiola", "Oluwafemi", "Albert", "South Gate", "North Gate"]
-                        ),
-                        Campus(
-                            name="Lead City University",
-                            acronym="LCU",
-                            state="Oyo",
-                            popular_hostels=["Achievers Hall", "Peace Hall", "Senate Hall", "Honours Hall"]
                         )
                     ]
                     session.add_all(seeded_campuses)
                     await session.commit()
-                    logger.info("Successfully seeded 5 major Nigerian campuses.")
+                    logger.info("Successfully seeded Nigerian tertiary campuses.")
+                else:
+                    # Ensure LCU and UI state are set to Ibadan
+                    await session.execute(update(Campus).where(Campus.acronym.in_(["LCU", "UI"])).values(state="Ibadan"))
+                    await session.commit()
         except Exception as seed_err:
             logger.warning(f"Campus seeding note: {seed_err}")
     except Exception as e:
