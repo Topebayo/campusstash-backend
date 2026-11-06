@@ -439,7 +439,7 @@ async def get_seller_storefront(
     Public Vendor Storefront: Browse all active items listed by a student seller or business.
     Accepts seller UUID or burner handle (with or without @).
     """
-    from app.models.profile import Profile
+    from app.models.user import PublicProfile
     seller_id = None
     try:
         seller_id = uuid.UUID(identifier)
@@ -453,8 +453,8 @@ async def get_seller_storefront(
         clean_handle = identifier.lstrip("@").strip()
         seller_query = seller_query.join(User.profile).where(
             or_(
-                func.lower(Profile.burner_handle) == clean_handle.lower(),
-                func.lower(Profile.burner_handle) == f"@{clean_handle.lower()}"
+                func.lower(PublicProfile.burner_handle) == clean_handle.lower(),
+                func.lower(PublicProfile.burner_handle) == f"@{clean_handle.lower()}"
             )
         )
 
