@@ -58,8 +58,24 @@ async def lifespan(app: FastAPI):
             try:
                 await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS campus_id UUID;'))
                 await conn.execute(text('ALTER TABLE listing ADD COLUMN IF NOT EXISTS campus_id UUID;'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS account_type VARCHAR(50) DEFAULT \'individual\';'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_name VARCHAR(255);'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_category VARCHAR(100);'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_description VARCHAR(500);'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_address VARCHAR(255);'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_whatsapp VARCHAR(50);'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_instagram VARCHAR(100);'))
             except Exception:
-                pass
+                try:
+                    await conn.execute(text('ALTER TABLE user ADD COLUMN account_type VARCHAR(50) DEFAULT \'individual\';'))
+                    await conn.execute(text('ALTER TABLE user ADD COLUMN business_name VARCHAR(255);'))
+                    await conn.execute(text('ALTER TABLE user ADD COLUMN business_category VARCHAR(100);'))
+                    await conn.execute(text('ALTER TABLE user ADD COLUMN business_description VARCHAR(500);'))
+                    await conn.execute(text('ALTER TABLE user ADD COLUMN business_address VARCHAR(255);'))
+                    await conn.execute(text('ALTER TABLE user ADD COLUMN business_whatsapp VARCHAR(50);'))
+                    await conn.execute(text('ALTER TABLE user ADD COLUMN business_instagram VARCHAR(100);'))
+                except Exception:
+                    pass
         logger.info("Database schemas verified and synchronized successfully.")
 
         # Seed campuses if not already seeded or update Ibadan locations

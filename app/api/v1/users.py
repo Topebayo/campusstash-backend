@@ -78,6 +78,32 @@ async def update_user_me(
             )
             db.add(profile)
             
+    if user_in.account_type is not None:
+        target_acc_type = user_in.account_type.strip().lower()
+        if target_acc_type in ["individual", "store"]:
+            current_user.account_type = target_acc_type
+
+    if user_in.business_name is not None:
+        current_user.business_name = user_in.business_name.strip() or None
+
+    if user_in.business_category is not None:
+        current_user.business_category = user_in.business_category.strip() or None
+
+    if user_in.business_description is not None:
+        current_user.business_description = user_in.business_description.strip() or None
+
+    if user_in.business_address is not None:
+        current_user.business_address = user_in.business_address.strip() or None
+
+    if user_in.business_whatsapp is not None:
+        current_user.business_whatsapp = user_in.business_whatsapp.strip() or None
+
+    if user_in.business_instagram is not None:
+        current_user.business_instagram = user_in.business_instagram.strip().lstrip('@') or None
+
+    if user_in.campus_id is not None:
+        current_user.campus_id = user_in.campus_id
+
     await db.commit()
     refetch = await db.execute(
         select(User).options(selectinload(User.profile)).where(User.id == current_user.id)

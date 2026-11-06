@@ -23,6 +23,15 @@ class User(Base):
         index=True
     )
     
+    # Account type & Store business details
+    account_type: Mapped[str] = mapped_column(String(50), default="individual", nullable=False)
+    business_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    business_category: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    business_description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    business_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    business_whatsapp: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    business_instagram: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 

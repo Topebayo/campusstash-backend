@@ -288,26 +288,54 @@ async def register(
                 detail="Phone number is already registered"
             )
 
-    # 3. Determine burner handle
+    # Account type & Store requirements validation
+    acc_type = (user_in.account_type or "individual").strip().lower()
+    if acc_type not in ["individual", "store"]:
+        acc_type = "individual"
+
+    b_name = user_in.business_name.strip() if user_in.business_name else None
+    owner_name = user_in.name.strip() if user_in.name else None
+
+    if acc_type == "store":
+        if not b_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Store accounts must provide a real business / store name."
+            )
+        if not owner_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Store accounts must provide the owner's real name."
+            )
+
+    # 3. Determine burner handle / store handle
     handle = user_in.burner_handle
     if not handle and user_in.profile:
         handle = user_in.profile.burner_handle
     if not handle:
-        handle = f"student_{uuid.uuid4().hex[:6]}"
-    handle = handle.strip()
+        if acc_type == "store" and b_name:
+            import re
+            clean_b = re.sub(r'[^a-zA-Z0-9_]', '_', b_name.lower().replace("'", ""))
+            clean_b = re.sub(r'_+', '_', clean_b).strip('_')[:20]
+            handle = clean_b or f"store_{uuid.uuid4().hex[:6]}"
+        else:
+            handle = f"student_{uuid.uuid4().hex[:6]}"
+    handle = handle.strip().lstrip('@')
 
-    res_handle = await db.execute(select(PublicProfile).where(PublicProfile.burner_handle == handle))
+    res_handle = await db.execute(
+        select(PublicProfile).where(func.lower(PublicProfile.burner_handle) == handle.lower())
+    )
     if res_handle.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
-            detail="Burner handle already taken. Please choose another."
+            detail="Username / store handle already taken. Please choose another."
         )
 
     # 4. Hash password with Passlib Bcrypt (Validates strength: min 8, max 72 chars)
     hashed_password = security.get_password_hash(user_in.password)
 
     # 5. Determine display name
-    name = user_in.name
+    name = owner_name
     if not name:
         name = handle or user_in.email.split("@")[0].capitalize()
 
@@ -318,6 +346,14 @@ async def register(
         name=name,
         phone=phone_cleaned,
         is_phone_verified=True,
+        campus_id=user_in.campus_id,
+        account_type=acc_type,
+        business_name=b_name,
+        business_category=user_in.business_category.strip() if user_in.business_category else None,
+        business_description=user_in.business_description.strip() if user_in.business_description else None,
+        business_address=user_in.business_address.strip() if user_in.business_address else None,
+        business_whatsapp=user_in.business_whatsapp.strip() if user_in.business_whatsapp else (phone_cleaned if acc_type == "store" else None),
+        business_instagram=user_in.business_instagram.strip().lstrip('@') if user_in.business_instagram else None,
     )
     profile = PublicProfile(
         burner_handle=handle,

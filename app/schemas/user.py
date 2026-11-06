@@ -19,6 +19,14 @@ class UserRegister(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     burner_handle: Optional[str] = None
+    account_type: Optional[str] = Field("individual", description="'individual' or 'store'")
+    business_name: Optional[str] = None
+    business_category: Optional[str] = None
+    business_description: Optional[str] = None
+    business_address: Optional[str] = None
+    business_whatsapp: Optional[str] = None
+    business_instagram: Optional[str] = None
+    campus_id: Optional[uuid.UUID] = None
     profile: Optional[PublicProfileCreate] = None
 
 # Backward compatibility alias
@@ -64,6 +72,14 @@ class UserRead(BaseModel):
     phone: Optional[str] = None
     is_active: bool = True
     is_phone_verified: bool = False
+    account_type: str = "individual"
+    business_name: Optional[str] = None
+    business_category: Optional[str] = None
+    business_description: Optional[str] = None
+    business_address: Optional[str] = None
+    business_whatsapp: Optional[str] = None
+    business_instagram: Optional[str] = None
+    campus_id: Optional[uuid.UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     profile: Optional[PublicProfileRead] = None
@@ -74,6 +90,14 @@ class UserUpdate(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     burner_handle: Optional[str] = None
+    account_type: Optional[str] = None
+    business_name: Optional[str] = None
+    business_category: Optional[str] = None
+    business_description: Optional[str] = None
+    business_address: Optional[str] = None
+    business_whatsapp: Optional[str] = None
+    business_instagram: Optional[str] = None
+    campus_id: Optional[uuid.UUID] = None
 
 
 class ChangePasswordRequest(BaseModel):

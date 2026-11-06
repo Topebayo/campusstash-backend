@@ -37,6 +37,9 @@ class ParticipantRead(BaseModel):
     name: Optional[str] = None
     email: str
     burner_handle: Optional[str] = None
+    avatar_slug: Optional[str] = None
+    account_type: Optional[str] = "individual"
+    business_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

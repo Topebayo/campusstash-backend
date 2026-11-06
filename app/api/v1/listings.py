@@ -45,7 +45,14 @@ def format_listing_read(listing: Listing) -> ListingRead:
             name=listing.seller.name,
             phone=listing.seller.phone,
             burner_handle=handle,
-            avatar_slug=avatar
+            avatar_slug=avatar,
+            account_type=getattr(listing.seller, "account_type", "individual") or "individual",
+            business_name=getattr(listing.seller, "business_name", None),
+            business_category=getattr(listing.seller, "business_category", None),
+            business_description=getattr(listing.seller, "business_description", None),
+            business_address=getattr(listing.seller, "business_address", None),
+            business_whatsapp=getattr(listing.seller, "business_whatsapp", None),
+            business_instagram=getattr(listing.seller, "business_instagram", None),
         )
 
     images_list = []
@@ -484,7 +491,14 @@ async def get_seller_storefront(
         name=seller.name,
         phone=seller.phone,
         burner_handle=handle,
-        avatar_slug=avatar
+        avatar_slug=avatar,
+        account_type=getattr(seller, "account_type", "individual") or "individual",
+        business_name=getattr(seller, "business_name", None),
+        business_category=getattr(seller, "business_category", None),
+        business_description=getattr(seller, "business_description", None),
+        business_address=getattr(seller, "business_address", None),
+        business_whatsapp=getattr(seller, "business_whatsapp", None),
+        business_instagram=getattr(seller, "business_instagram", None),
     )
 
     campus_name = seller.campus.name if seller.campus else None

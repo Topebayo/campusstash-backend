@@ -56,7 +56,9 @@ def format_conversation_read(conv: Conversation, current_user_id: uuid.UUID, unr
             email=other_user.email,
             name=other_user.name,
             burner_handle=handle,
-            avatar_slug=avatar
+            avatar_slug=avatar,
+            account_type=getattr(other_user, "account_type", "individual") or "individual",
+            business_name=getattr(other_user, "business_name", None)
         )
 
     last_msg = None

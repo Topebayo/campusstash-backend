@@ -24,6 +24,13 @@ class SellerProfileRead(BaseModel):
     phone: Optional[str] = None
     burner_handle: Optional[str] = None
     avatar_slug: Optional[str] = None
+    account_type: Optional[str] = "individual"
+    business_name: Optional[str] = None
+    business_category: Optional[str] = None
+    business_description: Optional[str] = None
+    business_address: Optional[str] = None
+    business_whatsapp: Optional[str] = None
+    business_instagram: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
