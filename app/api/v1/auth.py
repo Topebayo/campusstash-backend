@@ -9,7 +9,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
 from jose import ExpiredSignatureError, JWTError
 
@@ -380,17 +380,17 @@ async def login(
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """
-    Authenticate user using email and password.
+    Authenticate user using email or phone number and password.
     Rate limited to 5 attempts per minute per IP.
     """
-    email: Optional[str] = None
+    identifier: Optional[str] = None
     password: Optional[str] = None
 
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
         try:
             body = await request.json()
-            email = body.get("email") or body.get("username")
+            identifier = body.get("email") or body.get("username") or body.get("phone")
             password = body.get("password")
         except Exception:
             raise HTTPException(
@@ -399,25 +399,32 @@ async def login(
             )
     else:
         form = await request.form()
-        email = form.get("email") or form.get("username")
+        identifier = form.get("email") or form.get("username") or form.get("phone")
         password = form.get("password")
 
-    if not email or not password:
+    if not identifier or not str(identifier).strip() or not password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email and password are required"
+            detail="Email or phone number and password are required"
         )
 
-    # Query user with profile loaded
+    clean_id = str(identifier).strip()
+    phone_variants = get_phone_variants(clean_id)
+
+    conditions = [func.lower(User.email) == clean_id.lower()]
+    if phone_variants:
+        conditions.append(User.phone.in_(phone_variants))
+
+    # Match user by email (case-insensitive) OR by phone number (all representations)
     result = await db.execute(
-        select(User).options(selectinload(User.profile)).where(User.email == email.strip())
+        select(User).options(selectinload(User.profile)).where(or_(*conditions))
     )
     user = result.scalar_one_or_none()
 
     if not user or not security.verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Incorrect email or password"
+            detail="Incorrect email/phone number or password"
         )
     if not user.is_active:
         raise HTTPException(
@@ -436,18 +443,26 @@ async def login_access_token_form(
     form_data: OAuth2PasswordRequestForm = Depends()
 ) -> Any:
     """
-    OAuth2 standard password request form endpoint (email sent in 'username' field).
+    OAuth2 standard password request form endpoint (email or phone sent in 'username' field).
     Rate limited to 5 attempts per minute per IP.
     """
+    clean_id = form_data.username.strip()
+    phone_variants = get_phone_variants(clean_id)
+
+    conditions = [func.lower(User.email) == clean_id.lower()]
+    if phone_variants:
+        conditions.append(User.phone.in_(phone_variants))
+
+    # Match user by email (case-insensitive) OR by phone number (all representations)
     result = await db.execute(
-        select(User).options(selectinload(User.profile)).where(User.email == form_data.username.strip())
+        select(User).options(selectinload(User.profile)).where(or_(*conditions))
     )
     user = result.scalar_one_or_none()
 
     if not user or not security.verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Incorrect email or password"
+            detail="Incorrect email/phone number or password"
         )
     if not user.is_active:
         raise HTTPException(
