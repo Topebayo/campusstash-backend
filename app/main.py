@@ -247,6 +247,17 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 os.makedirs('static/uploads', exist_ok=True)
 app.mount('/static', StaticFiles(directory='static'), name='static')
 
+@app.get('/', tags=['Health'])
+async def root():
+    return {
+        'status': 'online',
+        'project': settings.PROJECT_NAME,
+        'message': 'CampusStash API is running live on Railway.',
+        'version': '1.2.0',
+        'docs': '/docs',
+        'health': '/health'
+    }
+
 @app.get('/health', tags=['Health'])
 async def health_check():
     db_status = "healthy"
