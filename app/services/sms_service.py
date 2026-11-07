@@ -176,13 +176,35 @@ async def send_phone_otp_sms(normalized: str, otp_code: str, api_key: str, base_
                     if default_s not in candidate_senders:
                         candidate_senders.append(default_s)
 
+            # 1. If WhatsApp requested, first attempt Termii's official WhatsApp OTP route
             if channel == "whatsapp":
-                channels_to_try = ["whatsapp", "dnd", "generic"]
-            else:
-                channels_to_try = ["dnd", "generic", "whatsapp"]
+                for s_id in candidate_senders:
+                    whatsapp_payload = {
+                        "to": normalized,
+                        "from": s_id,
+                        "sms": otp_code,  # Termii whatsapp_otp strictly requires raw OTP token
+                        "type": "plain",
+                        "channel": "whatsapp_otp",
+                        "api_key": api_key
+                    }
+                    try:
+                        resp = await client.post(sms_url, json=whatsapp_payload)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            if data.get("message") == "Successfully Sent":
+                                logger.info(f"Termii WhatsApp OTP sent successfully to {normalized}")
+                                return {"success": True, "provider": "termii", "sender_id": s_id, "channel": "whatsapp", "data": data}
+                            else:
+                                logger.warning(f"Termii WhatsApp OTP non-success: {data}")
+                        else:
+                            logger.warning(f"Termii WhatsApp OTP HTTP {resp.status_code}: {resp.text}")
+                    except Exception as w_err:
+                        logger.warning(f"Termii WhatsApp attempt failed: {w_err}")
 
+            # 2. Dispatch via SMS (dnd or generic)
+            sms_channels = ["dnd", "generic"]
             for s_id in candidate_senders:
-                for ch in channels_to_try:
+                for ch in sms_channels:
                     payload = {
                         "to": normalized,
                         "from": s_id,
@@ -197,7 +219,15 @@ async def send_phone_otp_sms(normalized: str, otp_code: str, api_key: str, base_
                             data = resp.json()
                             if data.get("message") == "Successfully Sent":
                                 logger.info(f"Termii SMS sent successfully to {normalized} via sender '{s_id}' channel '{ch}'")
-                                return {"success": True, "provider": "termii", "sender_id": s_id, "channel": ch, "data": data}
+                                was_fallback = (channel == "whatsapp")
+                                return {
+                                    "success": True, 
+                                    "provider": "termii", 
+                                    "sender_id": s_id, 
+                                    "channel": "sms", 
+                                    "was_fallback": was_fallback,
+                                    "data": data
+                                }
                             else:
                                 logger.warning(f"Termii response with sender '{s_id}' channel '{ch}': {data}")
                         else:
@@ -205,22 +235,18 @@ async def send_phone_otp_sms(normalized: str, otp_code: str, api_key: str, base_
                     except Exception as send_err:
                         logger.warning(f"Attempt with sender '{s_id}' channel '{ch}' failed: {send_err}")
 
-            logger.warning(f"Termii delivery could not be completed. Falling back to dev verification.")
+            logger.warning(f"Termii delivery could not be completed.")
             return {
-                "success": True, 
-                "provider": "termii_fallback", 
-                "channel": channel,
-                "message": "Verification code generated (fallback mode active)",
-                "dev_code": otp_code
+                "success": False, 
+                "provider": "termii_error", 
+                "error": "Failed to deliver OTP via WhatsApp or SMS. Please use Email OTP."
             }
 
     except Exception as e:
         logger.error(f"Failed to contact Termii API: {e}")
         return {
-            "success": True, 
-            "provider": "fallback_dev", 
-            "channel": channel,
-            "message": f"Error reaching SMS gateway: {e}",
-            "dev_code": otp_code
+            "success": False, 
+            "provider": "termii_error", 
+            "error": str(e)
         }
 

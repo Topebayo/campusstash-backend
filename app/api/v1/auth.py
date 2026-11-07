@@ -173,17 +173,26 @@ async def send_phone_verification_otp(
 
     # 4. Dispatch OTP via Termii (SMS or WhatsApp)
     sms_res = await send_phone_otp(normalized, otp_code, channel=req_channel)
+    if not sms_res.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=sms_res.get("error", "Failed to dispatch verification code. Please try Email OTP.")
+        )
 
     dev_code = sms_res.get("dev_code")
     is_local_dev = settings.ENVIRONMENT.lower() == "development" and bool(getattr(settings, "DEV_BYPASS_OTP", False))
     dev_code_out = dev_code if is_local_dev else None
 
     actual_channel = sms_res.get("channel", req_channel)
+    was_fallback = sms_res.get("was_fallback", False)
+    s_id = sms_res.get("sender_id")
+    tag = f" (via {s_id})" if s_id else ""
+
     if str(actual_channel).lower() == "whatsapp":
         msg = f"A 6-digit verification code has been sent to +{normalized} via WhatsApp."
+    elif was_fallback:
+        msg = f"WhatsApp delivery unavailable on your line. A 6-digit code was sent via SMS{tag} instead."
     else:
-        s_id = sms_res.get("sender_id")
-        tag = f" (via {s_id})" if s_id else ""
         msg = f"A 6-digit verification code has been sent to +{normalized} via SMS{tag}."
 
     return OtpResponse(
@@ -708,17 +717,26 @@ async def forgot_password_send_otp(
 
     # 4. Dispatch OTP via Termii (SMS or WhatsApp)
     sms_res = await send_phone_otp(normalized, otp_code, channel=req_channel)
+    if not sms_res.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=sms_res.get("error", "Failed to dispatch reset code. Please try Email OTP.")
+        )
 
     dev_code = sms_res.get("dev_code")
     is_local_dev = settings.ENVIRONMENT.lower() == "development" and bool(getattr(settings, "DEV_BYPASS_OTP", False))
     dev_code_out = dev_code if is_local_dev else None
 
     actual_channel = sms_res.get("channel", req_channel)
+    was_fallback = sms_res.get("was_fallback", False)
+    s_id = sms_res.get("sender_id")
+    tag = f" (via {s_id})" if s_id else ""
+
     if str(actual_channel).lower() == "whatsapp":
         msg = f"Password reset code has been sent to +{normalized} via WhatsApp."
+    elif was_fallback:
+        msg = f"WhatsApp delivery unavailable on your line. Code was sent via SMS{tag} instead."
     else:
-        s_id = sms_res.get("sender_id")
-        tag = f" (via {s_id})" if s_id else ""
         msg = f"Password reset code has been sent to +{normalized} via SMS{tag}."
 
     return OtpResponse(
