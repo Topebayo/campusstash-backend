@@ -100,7 +100,7 @@ async def send_phone_otp(phone: str, otp_code: str, channel: str = "sms") -> dic
             "provider": "dev_simulation", 
             "channel": channel_clean,
             "message": f"Verification code generated in simulation mode ({channel_clean}).",
-            "dev_code": otp_code
+            "dev_code": otp_code if (settings.ENVIRONMENT.lower() == "development" and bool(getattr(settings, "DEV_BYPASS_OTP", False))) else None
         }
 
     api_key = settings.TERMII_API_KEY.strip()

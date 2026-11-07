@@ -103,14 +103,14 @@ async def send_phone_verification_otp(
 
         email_res = await send_email_otp(target_email, otp_code, purpose="verification")
         dev_code = email_res.get("dev_code")
-        if not dev_code and (not getattr(settings, "RESEND_API_KEY", None)):
-            dev_code = otp_code
+        is_local_dev = settings.ENVIRONMENT.lower() == "development" and bool(getattr(settings, "DEV_BYPASS_OTP", False))
+        dev_code_out = dev_code if is_local_dev else None
 
         return OtpResponse(
             status="success",
             message=f"Verification code delivered to {target_email}. Check your inbox or spam folder!",
             email=target_email,
-            dev_code=dev_code
+            dev_code=dev_code_out
         )
 
     # Phone channel (SMS or WhatsApp)
@@ -121,8 +121,9 @@ async def send_phone_verification_otp(
             detail="Please provide a valid Nigerian or international phone number (e.g. 08012345678 or +234...)"
         )
 
-    # 1. Check if phone is already registered and verified by another user
-    existing = await db.execute(select(User).where(User.phone == normalized))
+    # 1. Check if phone is already registered and verified by another user (matching all local & international formats)
+    phone_variants = get_phone_variants(raw_phone)
+    existing = await db.execute(select(User).where(User.phone.in_(phone_variants)))
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -161,8 +162,8 @@ async def send_phone_verification_otp(
     sms_res = await send_phone_otp(normalized, otp_code, channel=req_channel)
 
     dev_code = sms_res.get("dev_code")
-    if not dev_code and (not settings.TERMII_API_KEY or not settings.TERMII_API_KEY.strip()):
-        dev_code = otp_code
+    is_local_dev = settings.ENVIRONMENT.lower() == "development" and bool(getattr(settings, "DEV_BYPASS_OTP", False))
+    dev_code_out = dev_code if is_local_dev else None
 
     actual_channel = sms_res.get("channel", req_channel)
     if str(actual_channel).lower() == "whatsapp":
@@ -176,7 +177,7 @@ async def send_phone_verification_otp(
         status="success",
         message=msg,
         phone=normalized,
-        dev_code=dev_code
+        dev_code=dev_code_out
     )
 
 
@@ -278,14 +279,15 @@ async def register(
             detail="Email is already registered"
         )
 
-    # 2. Check phone if provided
+    # 2. Check phone if provided (matching all phone number representations)
     phone_cleaned = user_in.phone.strip() if user_in.phone else None
     if phone_cleaned:
-        res_phone = await db.execute(select(User).where(User.phone == phone_cleaned))
+        variants = get_phone_variants(phone_cleaned)
+        res_phone = await db.execute(select(User).where(User.phone.in_(variants)))
         if res_phone.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, 
-                detail="Phone number is already registered"
+                detail="This phone number is already registered to an existing account. Please log in instead."
             )
 
     # Account type & Store requirements validation
@@ -619,14 +621,14 @@ async def forgot_password_send_otp(
 
         email_res = await send_email_otp(target_email, otp_code, purpose="reset")
         dev_code = email_res.get("dev_code")
-        if not dev_code and (not getattr(settings, "RESEND_API_KEY", None)):
-            dev_code = otp_code
+        is_local_dev = settings.ENVIRONMENT.lower() == "development" and bool(getattr(settings, "DEV_BYPASS_OTP", False))
+        dev_code_out = dev_code if is_local_dev else None
 
         return OtpResponse(
             status="success",
             message=f"Password reset code has been sent to your email ({target_email}). Check your inbox or spam folder!",
             email=target_email,
-            dev_code=dev_code
+            dev_code=dev_code_out
         )
 
     # Phone recovery route (SMS or WhatsApp)
@@ -680,8 +682,8 @@ async def forgot_password_send_otp(
     sms_res = await send_phone_otp(normalized, otp_code, channel=req_channel)
 
     dev_code = sms_res.get("dev_code")
-    if not dev_code and (not settings.TERMII_API_KEY or not settings.TERMII_API_KEY.strip()):
-        dev_code = otp_code
+    is_local_dev = settings.ENVIRONMENT.lower() == "development" and bool(getattr(settings, "DEV_BYPASS_OTP", False))
+    dev_code_out = dev_code if is_local_dev else None
 
     actual_channel = sms_res.get("channel", req_channel)
     if str(actual_channel).lower() == "whatsapp":
@@ -695,7 +697,7 @@ async def forgot_password_send_otp(
         status="success",
         message=msg,
         phone=normalized,
-        dev_code=dev_code
+        dev_code=dev_code_out
     )
 
 
