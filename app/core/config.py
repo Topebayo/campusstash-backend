@@ -72,6 +72,8 @@ class Settings(BaseSettings):
             "ionic://localhost",
             "https://campusstash-frontend.onrender.com",
             "https://campusstash.onrender.com",
+            "https://campusstash-frontend.vercel.app",
+            "https://campusstash.vercel.app",
         ]
         if self.ALLOWED_ORIGINS:
             for org in self.ALLOWED_ORIGINS.split(","):

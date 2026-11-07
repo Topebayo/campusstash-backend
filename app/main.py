@@ -215,7 +215,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.get_cors_origins(),
-    allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|capacitor://localhost|ionic://localhost|https://campusstash.*\.onrender\.com)$",
+    allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|capacitor://localhost|ionic://localhost|https://.*\.onrender\.com|https://.*\.vercel\.app|https://.*\.netlify\.app|https://.*\.railway\.app)$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -230,12 +230,18 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         f"[SERVER ERROR] {request.method} {request.url.path}: {exc}\n"
         f"{traceback.format_exc()}"
     )
+    headers = {}
+    origin = request.headers.get("origin")
+    if origin:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "detail": "An unexpected server error occurred. Incident has been logged for monitoring.",
             "error": "internal_server_error"
-        }
+        },
+        headers=headers
     )
 
 os.makedirs('static/uploads', exist_ok=True)
