@@ -1,19 +1,116 @@
 import logging
-from typing import Any
+import uuid
+from typing import Any, Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, or_, desc
 
 logger = logging.getLogger(__name__)
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 
 from app.api.deps import get_db, get_current_active_user
 from app.models.user import User, PublicProfile
 from app.core import security
 from app.core.limiter import limiter
-from app.schemas.user import UserRead, UserUpdate, ChangePasswordRequest
+from app.schemas.user import UserRead, UserUpdate, ChangePasswordRequest, StoreSummary
 
 router = APIRouter()
+
+@router.get("/stores", response_model=list[StoreSummary])
+async def list_campus_stores(
+    campus_id: Optional[uuid.UUID] = None,
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """
+    Public Directory of Campus Stores & Student Businesses.
+    Allows students to discover shops, thrift vendors, tech services, and bakers.
+    """
+    import uuid as _uuid
+    from app.models.marketplace import Listing
+    from app.models.campus import Campus
+
+    query_term = (search or q or "").strip()
+    
+    conditions = [
+        User.is_active == True,
+        or_(
+            User.account_type == "store",
+            User.business_name.isnot(None),
+            User.listings.any(Listing.status == "active")
+        )
+    ]
+
+    if campus_id:
+        conditions.append(User.campus_id == campus_id)
+
+    if category and category.strip() and category.lower() != "all stores":
+        conditions.append(User.business_category.ilike(f"%{category.strip()}%"))
+
+    if query_term:
+        term = f"%{query_term}%"
+        conditions.append(
+            or_(
+                User.business_name.ilike(term),
+                User.business_description.ilike(term),
+                User.name.ilike(term)
+            )
+        )
+
+    stmt = (
+        select(User)
+        .options(
+            joinedload(User.profile),
+            joinedload(User.campus),
+            selectinload(User.listings)
+        )
+        .where(*conditions)
+        .limit(limit)
+    )
+
+    res = await db.execute(stmt)
+    vendors = res.unique().scalars().all()
+
+    output = []
+    for u in vendors:
+        handle = u.profile.burner_handle if u.profile else None
+        avatar = u.profile.avatar_slug if u.profile else None
+        b_name = u.business_name or (f"{u.name}'s Shop" if u.name else (f"@{handle}" if handle else "Campus Shop"))
+        b_cat = u.business_category or "Campus Merchant"
+        
+        active_items = [l for l in u.listings if l.status == "active"]
+        sample_imgs = [l.image_url for l in active_items if l.image_url][:3]
+
+        c_name = u.campus.name if u.campus else None
+        c_acro = u.campus.acronym if u.campus else None
+
+        output.append(StoreSummary(
+            id=u.id,
+            name=u.name,
+            email=u.email,
+            burner_handle=handle,
+            avatar_slug=avatar,
+            account_type=getattr(u, "account_type", "store") or "store",
+            business_name=b_name,
+            business_category=b_cat,
+            business_description=u.business_description,
+            business_address=u.business_address,
+            business_whatsapp=u.business_whatsapp,
+            business_instagram=u.business_instagram,
+            campus_id=u.campus_id,
+            campus_name=c_name,
+            campus_acronym=c_acro,
+            listings_count=len(active_items),
+            sample_images=sample_imgs
+        ))
+
+    # Prioritize stores that have active listings or upgraded business names
+    output.sort(key=lambda s: (s.listings_count > 0, s.account_type == "store"), reverse=True)
+    return output
+
 
 @router.get("/me", response_model=UserRead)
 async def read_user_me(

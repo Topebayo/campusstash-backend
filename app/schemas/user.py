@@ -103,3 +103,25 @@ class UserUpdate(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+class StoreSummary(BaseModel):
+    id: uuid.UUID
+    name: Optional[str] = None
+    email: Optional[str] = None
+    burner_handle: Optional[str] = None
+    avatar_slug: Optional[str] = None
+    account_type: str = "store"
+    business_name: Optional[str] = None
+    business_category: Optional[str] = None
+    business_description: Optional[str] = None
+    business_address: Optional[str] = None
+    business_whatsapp: Optional[str] = None
+    business_instagram: Optional[str] = None
+    campus_id: Optional[uuid.UUID] = None
+    campus_name: Optional[str] = None
+    campus_acronym: Optional[str] = None
+    listings_count: int = 0
+    sample_images: list[str] = []
+
+    model_config = ConfigDict(from_attributes=True)
