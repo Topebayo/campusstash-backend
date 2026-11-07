@@ -57,13 +57,13 @@ async def send_phone_verification_otp(
     raw_email = (req.email or "").strip().lower()
 
     # Detect email channel
-    is_email_channel = req_channel == "email" or bool(raw_email) or ("@" in raw_phone)
+    is_email_channel = (req_channel == "email") or ("@" in raw_phone) or ("@" in raw_email)
     if is_email_channel:
-        target_email = raw_email or raw_phone.lower()
+        target_email = raw_email if (raw_email and "@" in raw_email) else (raw_phone.lower() if "@" in raw_phone else "")
         if not target_email or "@" not in target_email:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Please provide a valid email address."
+                detail="Please enter a valid email address to receive your verification code."
             )
 
         # Check if email is already registered
@@ -102,6 +102,12 @@ async def send_phone_verification_otp(
         await db.commit()
 
         email_res = await send_email_otp(target_email, otp_code, purpose="verification")
+        if not email_res.get("success"):
+            err_msg = email_res.get("message", "Email service error")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Email delivery failed: {err_msg}"
+            )
         dev_code = email_res.get("dev_code")
         is_local_dev = settings.ENVIRONMENT.lower() == "development" and bool(getattr(settings, "DEV_BYPASS_OTP", False))
         dev_code_out = dev_code if is_local_dev else None
@@ -119,6 +125,13 @@ async def send_phone_verification_otp(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Please provide a valid Nigerian or international phone number (e.g. 08012345678 or +234...)"
+        )
+
+    # If Termii is not configured, inform the user to use Email OTP
+    if not settings.TERMII_API_KEY or not settings.TERMII_API_KEY.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="SMS service is not active. Please tap 'Email OTP' above to receive your verification code instantly!"
         )
 
     # 1. Check if phone is already registered and verified by another user (matching all local & international formats)
