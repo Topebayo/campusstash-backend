@@ -5,7 +5,7 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Body, status, File, UploadFile, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 
 from pydantic import ValidationError
 from app.api.deps import get_db, get_current_active_user
@@ -109,6 +109,7 @@ async def list_listings(
     max_price: Optional[int] = Query(None, ge=0, description="Maximum price filter (in kobo/minor units)"),
     search: Optional[str] = Query(None, description="Keyword search query matching title or description"),
     q: Optional[str] = Query(None, description="Alias for search query"),
+    ids: Optional[str] = Query(None, description="Comma-separated IDs of listings to retrieve"),
     sort: Optional[str] = Query("newest", description="Sort order: newest, price_asc, price_desc"),
     status: Optional[str] = Query("active", description="Filter by status (default: 'active', pass 'all' for all)"),
     limit: int = Query(20, ge=1, le=100, description="Items per page (max: 100)"),
@@ -127,6 +128,15 @@ async def list_listings(
     # Status filter
     if status and status.lower() != "all":
         base_conditions.append(Listing.status == status)
+
+    # Specific IDs filter (e.g. for saved items)
+    if ids and ids.strip():
+        try:
+            parsed_ids = [uuid.UUID(i.strip()) for i in ids.split(",") if i.strip()]
+            if parsed_ids:
+                base_conditions.append(Listing.id.in_(parsed_ids))
+        except ValueError:
+            pass
 
     # Category filter
     if category and category.strip() and category.lower() != "all":
@@ -157,13 +167,13 @@ async def list_listings(
     total_res = await db.execute(count_stmt)
     total = total_res.scalar() or 0
 
-    # Query paginated listings with eager-loaded seller and images
+    # High-Performance Query paginated listings with joined seller & campus
     query = (
         select(Listing)
         .options(
-            selectinload(Listing.seller).selectinload(User.profile),
-            selectinload(Listing.images),
-            selectinload(Listing.campus)
+            joinedload(Listing.seller).joinedload(User.profile),
+            joinedload(Listing.campus),
+            selectinload(Listing.images)
         )
     )
     if base_conditions:
@@ -179,7 +189,7 @@ async def list_listings(
 
     query = query.offset(offset).limit(limit)
     result = await db.execute(query)
-    listings = result.scalars().all()
+    listings = result.unique().scalars().all()
 
     items = [format_listing_read(l) for l in listings]
     has_more = (offset + limit) < total

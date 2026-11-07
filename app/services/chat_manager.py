@@ -32,19 +32,26 @@ class ConnectionManager:
             return None
             
         if self._redis is None:
+            redis_url = (settings.REDIS_URL or "").strip()
+            # If no external Redis URL is provided (e.g. on Railway with default localhost),
+            # skip immediately to in-memory pub/sub with 0ms delay.
+            if not redis_url or "localhost" in redis_url or "127.0.0.1" in redis_url:
+                self._redis = False
+                return None
+
             try:
                 r = aioredis.from_url(
-                    settings.REDIS_URL, 
+                    redis_url, 
                     decode_responses=True,
                     max_connections=50,
-                    socket_connect_timeout=1.5,
-                    socket_timeout=1.5
+                    socket_connect_timeout=0.8,
+                    socket_timeout=0.8
                 )
                 await r.ping()
                 self._redis = r
-                print(f"[WebSocket] Connected to Redis Pub/Sub at {settings.REDIS_URL}")
+                print(f"[WebSocket] Connected to Redis Pub/Sub at {redis_url}")
             except Exception as e:
-                print(f"[WebSocket] Redis server at {settings.REDIS_URL} unavailable ({e}). Using in-memory Pub/Sub fallback.")
+                print(f"[WebSocket] Redis server unavailable ({e}). Using in-memory Pub/Sub fallback.")
                 self._redis = False
                 return None
                 

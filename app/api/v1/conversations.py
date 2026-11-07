@@ -4,8 +4,8 @@ from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, and_, func, update
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select, or_, and_, func, update, desc
+from sqlalchemy.orm import selectinload, joinedload, noload
 
 from app.api.deps import get_db, get_current_active_user
 from app.models.user import User
@@ -142,7 +142,7 @@ async def get_conversation_messages(
     # 3. Query paginated messages
     query = (
         select(Message)
-        .options(selectinload(Message.sender))
+        .options(joinedload(Message.sender))
         .where(Message.conversation_id == conversation_id)
     )
     if before:
@@ -440,6 +440,29 @@ async def create_or_get_conversation(
     return format_conversation_read(fresh_conv, current_user.id)
 
 
+@router.get("/unread-count")
+async def get_unread_count(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    """
+    Ultra-lightweight endpoint for polling total unread messages count.
+    Executes a single fast COUNT query without loading any ORM models.
+    """
+    stmt = (
+        select(func.count(Message.id))
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .where(
+            or_(Conversation.buyer_id == current_user.id, Conversation.seller_id == current_user.id),
+            Message.sender_id != current_user.id,
+            Message.is_read == False
+        )
+    )
+    res = await db.execute(stmt)
+    total_unread = res.scalar() or 0
+    return {"total_unread": total_unread}
+
+
 @router.get("", response_model=List[ConversationRead])
 @router.get("/", response_model=List[ConversationRead])
 async def list_conversations(
@@ -447,17 +470,23 @@ async def list_conversations(
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
     """
-    List all active 1-on-1 conversations for the current user (as buyer or seller).
-    Strict Row-Level Security: Only returns conversations involving current_user.
+    High-Speed List all active 1-on-1 conversations for the current user.
+    Uses SQL JOINs and batch aggregations to eliminate N+1 latency.
     """
-    result = await db.execute(
+    stmt = (
         select(Conversation)
         .options(
-            selectinload(Conversation.listing),
-            selectinload(Conversation.item_request),
-            selectinload(Conversation.buyer).selectinload(User.profile),
-            selectinload(Conversation.seller).selectinload(User.profile),
-            selectinload(Conversation.messages)
+            joinedload(Conversation.listing).options(
+                noload(Listing.seller),
+                noload(Listing.campus),
+                noload(Listing.images)
+            ),
+            joinedload(Conversation.item_request),
+            joinedload(Conversation.buyer).joinedload(User.profile),
+            joinedload(Conversation.buyer).noload(User.campus),
+            joinedload(Conversation.seller).joinedload(User.profile),
+            joinedload(Conversation.seller).noload(User.campus),
+            noload(Conversation.messages)
         )
         .where(
             or_(
@@ -467,13 +496,83 @@ async def list_conversations(
         )
         .order_by(Conversation.updated_at.desc())
     )
-    conversations = result.scalars().all()
+    result = await db.execute(stmt)
+    conversations = result.unique().scalars().all()
     
+    conv_ids = [c.id for c in conversations]
+    unread_map = {}
+    latest_map = {}
+    
+    if conv_ids:
+        # Batch unread counts in a single query
+        unread_stmt = (
+            select(Message.conversation_id, func.count(Message.id))
+            .where(
+                Message.conversation_id.in_(conv_ids),
+                Message.sender_id != current_user.id,
+                Message.is_read == False
+            )
+            .group_by(Message.conversation_id)
+        )
+        unread_res = await db.execute(unread_stmt)
+        unread_map = dict(unread_res.all())
+        
+        # Batch latest messages in a single query
+        latest_msg_stmt = (
+            select(Message.conversation_id, Message.text, Message.timestamp)
+            .where(Message.conversation_id.in_(conv_ids))
+            .order_by(Message.conversation_id, desc(Message.timestamp))
+            .distinct(Message.conversation_id)
+        )
+        latest_res = await db.execute(latest_msg_stmt)
+        latest_map = {row[0]: (row[1], row[2]) for row in latest_res.all()}
+
     output = []
     for conv in conversations:
-        # Count unread messages for current user
-        unread = sum(1 for m in conv.messages if m.sender_id != current_user.id and not m.is_read)
-        output.append(format_conversation_read(conv, current_user.id, unread_count=unread))
+        other_user = conv.seller if conv.buyer_id == current_user.id else conv.buyer
+        participant = None
+        if other_user:
+            handle = other_user.profile.burner_handle if other_user.profile else None
+            avatar = other_user.profile.avatar_slug if other_user.profile else None
+            participant = ParticipantRead(
+                id=other_user.id,
+                email=other_user.email,
+                name=other_user.name,
+                burner_handle=handle,
+                avatar_slug=avatar,
+                account_type=getattr(other_user, "account_type", "individual") or "individual",
+                business_name=getattr(other_user, "business_name", None)
+            )
+
+        last_info = latest_map.get(conv.id)
+        last_msg = last_info[0] if last_info else None
+        last_time = last_info[1] if last_info else (conv.updated_at or conv.created_at)
+
+        listing_title = conv.listing.title if conv.listing else None
+        listing_price = conv.listing.price if conv.listing else None
+        listing_image_url = conv.listing.image_url if conv.listing else None
+        if not listing_title and getattr(conv, "item_request", None) and conv.item_request:
+            listing_title = f"Wanted: {conv.item_request.title}"
+            budget = conv.item_request.budget_kobo or (conv.item_request.budget_naira * 100 if conv.item_request.budget_naira else None)
+            listing_price = budget
+
+        output.append(ConversationRead(
+            id=conv.id,
+            listing_id=conv.listing_id,
+            request_id=getattr(conv, "request_id", None),
+            buyer_id=conv.buyer_id,
+            seller_id=conv.seller_id,
+            created_at=conv.created_at,
+            updated_at=conv.updated_at,
+            listing_title=listing_title,
+            listing_price=listing_price,
+            listing_price_kobo=listing_price,
+            listing_image_url=listing_image_url,
+            other_user=participant,
+            last_message=last_msg,
+            last_message_time=last_time,
+            unread_count=unread_map.get(conv.id, 0)
+        ))
     return output
 
 
@@ -543,12 +642,13 @@ async def send_conversation_message(
         cleaned_text = cleaned_text[:3000]
 
     is_counterparty_in_room = recipient_id in manager.get_online_users_in_conversation(conversation_id)
+    now_utc = datetime.now(timezone.utc)
     msg = Message(
         conversation_id=conversation_id,
         sender_id=current_user.id,
         text=cleaned_text,
         is_read=is_counterparty_in_room,
-        timestamp=datetime.now(timezone.utc)
+        timestamp=now_utc
     )
     db.add(msg)
     await db.execute(
@@ -564,17 +664,28 @@ async def send_conversation_message(
         update(Conversation).where(Conversation.id == conversation_id).values(updated_at=func.now())
     )
     await db.commit()
-    await db.refresh(msg)
 
+    msg_id = msg.id
+    sender_name = current_user.name or current_user.email.split("@")[0]
     msg_payload = {
-        "id": str(msg.id),
+        "id": str(msg_id),
         "conversation_id": str(conversation_id),
         "sender_id": str(current_user.id),
-        "sender_name": current_user.name or current_user.email.split("@")[0],
+        "sender_name": sender_name,
         "sender_email": current_user.email,
-        "text": msg.text,
-        "is_read": msg.is_read,
-        "timestamp": msg.timestamp.isoformat()
+        "text": cleaned_text,
+        "is_read": is_counterparty_in_room,
+        "timestamp": now_utc.isoformat()
     }
     await manager.publish_to_redis(conversation_id, msg_payload)
-    return format_message_read(msg)
+
+    return MessageRead(
+        id=msg_id,
+        conversation_id=conversation_id,
+        sender_id=current_user.id,
+        text=cleaned_text,
+        is_read=is_counterparty_in_room,
+        timestamp=now_utc,
+        sender_name=sender_name,
+        sender_email=current_user.email
+    )

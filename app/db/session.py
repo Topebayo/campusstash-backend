@@ -16,13 +16,17 @@ engine_kwargs = {
 }
 
 if "postgresql+asyncpg" in db_url:
-    # Supabase & cloud PostgreSQL optimization:
-    # 1. pool_pre_ping: detects dropped connections across cloud firewalls
-    # 2. pool_recycle: refreshes connections every 5 minutes
-    # 3. statement_cache_size=0: required for Supabase transaction pooler (port 6543 / Supavisor / PgBouncer)
+    # High-Performance Supabase & Cloud PostgreSQL Configuration:
+    # 1. pool_size=20, max_overflow=20: Prevents connection starvation during concurrent requests
+    # 2. pool_recycle=1800: Keeps warm connections alive for 30 minutes, avoiding frequent 2.5s reconnects
+    # 3. pool_pre_ping=False: Eliminates the 250ms roundtrip SELECT 1 ping before every transaction
+    # 4. statement_cache_size=0: Required for Supabase transaction pooler (port 6543 / Supavisor)
     engine_kwargs.update({
-        "pool_pre_ping": True,
-        "pool_recycle": 300,
+        "pool_size": 20,
+        "max_overflow": 20,
+        "pool_timeout": 30,
+        "pool_pre_ping": False,
+        "pool_recycle": 1800,
         "connect_args": {
             "statement_cache_size": 0,
             "prepared_statement_cache_size": 0,

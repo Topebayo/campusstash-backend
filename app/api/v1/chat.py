@@ -6,7 +6,7 @@ from typing import List, Optional, Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, and_, func, update
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 
 from app.api.deps import get_db, get_current_active_user
 from app.db.session import AsyncSessionLocal
@@ -60,8 +60,9 @@ async def authenticate_websocket(websocket: WebSocket) -> Optional[User]:
 
     async with AsyncSessionLocal() as session:
         res = await session.execute(
-            select(User).options(selectinload(User.profile)).where(User.id == user_id)
+            select(User).options(joinedload(User.profile)).where(User.id == user_id)
         )
+        user = res.unique().scalar_one_or_none()
         user = res.scalar_one_or_none()
         if user and user.is_active:
             return user
@@ -97,21 +98,22 @@ async def chat_websocket_endpoint(
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid conversation ID")
         return
 
-    # 3. Verify conversation existence & 1-on-1 participant authorization (Strict Row-Level Isolation)
+    # 3. Fast verify conversation participant authorization (zero-overhead column select)
     async with AsyncSessionLocal() as session:
         res = await session.execute(
-            select(Conversation).where(Conversation.id == conv_uuid)
+            select(Conversation.buyer_id, Conversation.seller_id).where(Conversation.id == conv_uuid)
         )
-        conversation = res.scalar_one_or_none()
-        if not conversation:
+        row = res.first()
+        if not row:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Conversation not found")
             return
 
-        if user.id not in (conversation.buyer_id, conversation.seller_id):
+        buyer_id, seller_id = row
+        if user.id not in (buyer_id, seller_id):
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Forbidden: not a participant")
             return
 
-        recipient_id = conversation.seller_id if user.id == conversation.buyer_id else conversation.buyer_id
+        recipient_id = seller_id if user.id == buyer_id else buyer_id
 
     # 4. Connect to ConnectionManager
     await manager.connect(websocket, conv_uuid, user.id)
@@ -136,19 +138,18 @@ async def chat_websocket_endpoint(
             if len(cleaned_text) > 3000:
                 cleaned_text = cleaned_text[:3000]
 
-            # 5. Persist to PostgreSQL messages table with verified user.id as sender
+            # 5. Fast-persist to PostgreSQL with verified user.id as sender
+            now_utc = datetime.now(timezone.utc)
             async with AsyncSessionLocal() as session:
-                # Check if recipient is active in the same chat room right now
                 is_counterparty_in_room = recipient_id in manager.get_online_users_in_conversation(conv_uuid)
                 msg = Message(
                     conversation_id=conv_uuid,
                     sender_id=user.id,
                     text=cleaned_text,
                     is_read=is_counterparty_in_room,
-                    timestamp=datetime.now(timezone.utc)
+                    timestamp=now_utc
                 )
                 session.add(msg)
-                # When responding, mark all previous counterparty messages as read
                 await session.execute(
                     update(Message)
                     .where(
@@ -158,12 +159,10 @@ async def chat_websocket_endpoint(
                     )
                     .values(is_read=True)
                 )
-                # Touch conversation timestamp
                 await session.execute(
                     update(Conversation).where(Conversation.id == conv_uuid).values(updated_at=func.now())
                 )
                 await session.commit()
-                await session.refresh(msg)
 
                 msg_payload = {
                     "id": str(msg.id),
@@ -171,9 +170,9 @@ async def chat_websocket_endpoint(
                     "sender_id": str(user.id),
                     "sender_name": user.name or user.email.split("@")[0],
                     "sender_email": user.email,
-                    "text": msg.text,
-                    "is_read": msg.is_read,
-                    "timestamp": msg.timestamp.isoformat()
+                    "text": cleaned_text,
+                    "is_read": is_counterparty_in_room,
+                    "timestamp": now_utc.isoformat()
                 }
 
             # 6. Publish payload to Redis channel chat:{conversation_id}

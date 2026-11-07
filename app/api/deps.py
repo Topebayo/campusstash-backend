@@ -4,7 +4,7 @@ from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 from jose import jwt, JWTError, ExpiredSignatureError
 
 from app.core.config import settings
@@ -91,9 +91,9 @@ async def get_current_user(
         )
 
     result = await db.execute(
-        select(User).options(selectinload(User.profile)).where(User.id == user_id)
+        select(User).options(joinedload(User.profile), joinedload(User.campus)).where(User.id == user_id)
     )
-    user = result.scalar_one_or_none()
+    user = result.unique().scalar_one_or_none()
 
     if not user:
         raise HTTPException(
