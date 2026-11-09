@@ -102,7 +102,7 @@ async def get_admin_stats(
 @router.get("/users")
 async def list_users(
     query: Optional[str] = None,
-    limit: int = Query(default=30, ge=1, le=100),
+    limit: int = Query(default=100, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
@@ -222,7 +222,7 @@ async def get_recent_otps(
 
 @router.get("/recent-signups")
 async def get_recent_signups(
-    limit: int = Query(default=25, ge=1, le=50),
+    limit: int = Query(default=50, ge=1, le=100),
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ) -> List[Dict[str, Any]]:
@@ -249,7 +249,7 @@ async def get_recent_signups(
             "account_type": u.account_type,
             "business_name": u.business_name,
             "created_at": u.created_at.isoformat() if u.created_at else None,
-            "auth_method": "Google" if ("@gmail.com" in u.email.lower() and not u.phone) else "Phone/Email",
+            "auth_method": "Google" if ("@gmail.com" in u.email.lower() or "@googlemail.com" in u.email.lower()) else "Phone/Email",
         }
         for u in users
     ]
