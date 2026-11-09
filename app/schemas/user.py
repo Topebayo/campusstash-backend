@@ -168,3 +168,19 @@ class StoreSummary(BaseModel):
     sample_images: list[str] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AdminQuickRegisterRequest(BaseModel):
+    admin_pin: str = Field(..., description="Admin security PIN")
+    email: EmailStr = Field(..., description="Student email address")
+    phone: Optional[str] = Field(None, description="Student Nigerian phone number")
+    password: str = Field(..., min_length=6, description="Student password")
+    name: Optional[str] = Field(None, description="Student full name")
+    campus_id: Optional[uuid.UUID] = None
+    account_type: str = "individual"
+
+
+class AdminForceVerifyRequest(BaseModel):
+    admin_pin: str = Field(..., description="Admin security PIN")
+    identifier: str = Field(..., description="Phone number or Email of student to verify")
+
