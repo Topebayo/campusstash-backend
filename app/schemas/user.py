@@ -80,8 +80,12 @@ class UserRead(BaseModel):
     business_whatsapp: Optional[str] = None
     business_instagram: Optional[str] = None
     kyc_status: str = "unverified"
+    kyc_user_type: str = "student"
+    kyc_id_type: Optional[str] = None
+    kyc_id_number: Optional[str] = None
     kyc_student_id: Optional[str] = None
     kyc_id_card_url: Optional[str] = None
+    kyc_selfie_url: Optional[str] = None
     kyc_submitted_at: Optional[datetime] = None
     kyc_verified_at: Optional[datetime] = None
     campus_id: Optional[uuid.UUID] = None
@@ -103,8 +107,12 @@ class UserUpdate(BaseModel):
     business_whatsapp: Optional[str] = None
     business_instagram: Optional[str] = None
     kyc_status: Optional[str] = None
+    kyc_user_type: Optional[str] = None
+    kyc_id_type: Optional[str] = None
+    kyc_id_number: Optional[str] = None
     kyc_student_id: Optional[str] = None
     kyc_id_card_url: Optional[str] = None
+    kyc_selfie_url: Optional[str] = None
     campus_id: Optional[uuid.UUID] = None
 
 class GoogleAuthRequest(BaseModel):
@@ -118,12 +126,16 @@ class GoogleAuthRequest(BaseModel):
 class StoreKycRequest(BaseModel):
     business_name: str = Field(..., min_length=2, max_length=255)
     business_category: str = Field(..., min_length=2, max_length=100)
-    student_id_number: str = Field(..., min_length=2, max_length=100)
+    user_type: str = Field("student", description="'student' or 'non_student'")
+    student_id_number: Optional[str] = None
+    id_type: Optional[str] = Field("student_id", description="student_id, nin, voters_card, drivers_license, passport, national_id")
+    id_number: Optional[str] = None
     business_description: Optional[str] = None
     business_address: Optional[str] = None
     business_whatsapp: Optional[str] = None
     business_instagram: Optional[str] = None
     id_card_image: Optional[str] = None
+    face_selfie_image: Optional[str] = None
 
 class InAppVerifyPhoneRequest(BaseModel):
     phone: str = Field(..., min_length=7, max_length=30)

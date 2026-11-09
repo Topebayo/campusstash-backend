@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List
-from sqlalchemy import String, Boolean, ForeignKey, DateTime, func
+from sqlalchemy import String, Boolean, ForeignKey, DateTime, func, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base_class import Base
 
@@ -34,8 +34,12 @@ class User(Base):
     
     # Store Owner KYC Verification
     kyc_status: Mapped[str] = mapped_column(String(50), default="unverified", nullable=False)  # 'unverified', 'pending', 'verified'
+    kyc_user_type: Mapped[str] = mapped_column(String(50), default="student", nullable=False)  # 'student' | 'non_student'
+    kyc_id_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 'student_id', 'nin', 'voters_card', 'drivers_license', 'passport'
+    kyc_id_number: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Student Matric or Gov ID Number
     kyc_student_id: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Student Matric / ID Number
-    kyc_id_card_url: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Photo / Document proof
+    kyc_id_card_url: Mapped[str | None] = mapped_column(Text, nullable=True)  # Photo / Document proof (Student ID or Gov ID)
+    kyc_selfie_url: Mapped[str | None] = mapped_column(Text, nullable=True)  # Biometric Face verification selfie photo
     kyc_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     kyc_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     

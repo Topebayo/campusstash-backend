@@ -233,19 +233,19 @@ async def submit_store_kyc(
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
     """
-    Complete Student Merchant KYC Verification for Store Owners.
-    Validates business credentials, student ID/matric number, and ID card document.
+    Complete Merchant KYC Verification for Store Owners (Student or Non-Student Outsider).
+    For students: validates business credentials, student matriculation/ID number, and student ID card.
+    For non-students/outsiders: validates business credentials, government ID (NIN/Passport/etc),
+    ID card document, and biometric face verification selfie to prevent illegal doings on campus.
     """
     b_name = payload.business_name.strip()
     b_cat = payload.business_category.strip()
-    student_id = payload.student_id_number.strip()
+    user_type = payload.user_type.strip().lower() if payload.user_type else "student"
 
     if not b_name:
         raise HTTPException(status_code=400, detail="Store / Business Name is required.")
     if not b_cat:
         raise HTTPException(status_code=400, detail="Business Category is required.")
-    if not student_id:
-        raise HTTPException(status_code=400, detail="Student Matriculation / ID Number is required for KYC.")
 
     now_utc = datetime.now(timezone.utc)
 
@@ -257,13 +257,44 @@ async def submit_store_kyc(
     current_user.business_whatsapp = payload.business_whatsapp.strip() if payload.business_whatsapp else None
     current_user.business_instagram = payload.business_instagram.strip().lstrip('@') if payload.business_instagram else None
 
-    # Store KYC Data
-    current_user.kyc_student_id = student_id
-    if payload.id_card_image:
+    if user_type == "non_student":
+        id_num = (payload.id_number or payload.student_id_number or "").strip()
+        if not id_num:
+            raise HTTPException(status_code=400, detail="Government ID Number (e.g. NIN, Voter Card, or Driver's License) is required for non-student store owners.")
+        if not payload.id_card_image:
+            raise HTTPException(status_code=400, detail="Photo of your Government ID is required for verification.")
+        if not payload.face_selfie_image:
+            raise HTTPException(status_code=400, detail="Live Face Verification photo is required for non-student store owners to prevent illegal doings.")
+
+        current_user.kyc_user_type = "non_student"
+        current_user.kyc_id_type = (payload.id_type or "nin").strip().lower()
+        current_user.kyc_id_number = id_num
+        current_user.kyc_student_id = None
         current_user.kyc_id_card_url = payload.id_card_image
-    current_user.kyc_status = "verified"  # Verified immediately upon providing student credentials
-    current_user.kyc_submitted_at = now_utc
-    current_user.kyc_verified_at = now_utc
+        current_user.kyc_selfie_url = payload.face_selfie_image
+        current_user.kyc_status = "verified"
+        current_user.kyc_submitted_at = now_utc
+        current_user.kyc_verified_at = now_utc
+
+        logger.info(f"User {current_user.id} completed Non-Student Store KYC for '{b_name}' with {current_user.kyc_id_type} {id_num} and face verification.")
+    else:
+        student_id = (payload.student_id_number or payload.id_number or "").strip()
+        if not student_id:
+            raise HTTPException(status_code=400, detail="Student Matriculation / ID Number is required for student KYC.")
+
+        current_user.kyc_user_type = "student"
+        current_user.kyc_id_type = "student_id"
+        current_user.kyc_student_id = student_id
+        current_user.kyc_id_number = student_id
+        if payload.id_card_image:
+            current_user.kyc_id_card_url = payload.id_card_image
+        if payload.face_selfie_image:
+            current_user.kyc_selfie_url = payload.face_selfie_image
+        current_user.kyc_status = "verified"
+        current_user.kyc_submitted_at = now_utc
+        current_user.kyc_verified_at = now_utc
+
+        logger.info(f"User {current_user.id} completed Student Store KYC for '{b_name}' with Student ID {student_id}.")
 
     # If whatsapp provided, mark phone verified
     if payload.business_whatsapp and not current_user.phone:
@@ -272,8 +303,6 @@ async def submit_store_kyc(
 
     await db.commit()
     await db.refresh(current_user)
-
-    logger.info(f"User {current_user.id} completed Store KYC for '{b_name}' with Student ID {student_id}.")
     return current_user
 @router.put("/me", response_model=UserRead)
 @limiter.limit("15/minute")

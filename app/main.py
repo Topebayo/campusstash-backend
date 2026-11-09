@@ -70,6 +70,11 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS kyc_id_card_url VARCHAR(500);'))
                 await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS kyc_submitted_at TIMESTAMP WITH TIME ZONE;'))
                 await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS kyc_verified_at TIMESTAMP WITH TIME ZONE;'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS kyc_user_type VARCHAR(50) DEFAULT \'student\';'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS kyc_id_type VARCHAR(50);'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS kyc_id_number VARCHAR(100);'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS kyc_selfie_url TEXT;'))
+                await conn.execute(text('ALTER TABLE "user" ALTER COLUMN kyc_id_card_url TYPE TEXT;'))
             except Exception:
                 try:
                     await conn.execute(text('ALTER TABLE user ADD COLUMN account_type VARCHAR(50) DEFAULT \'individual\';'))
