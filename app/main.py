@@ -88,101 +88,318 @@ async def lifespan(app: FastAPI):
                     pass
         logger.info("Database schemas verified and synchronized successfully.")
 
-        # Seed campuses if not already seeded or update Ibadan locations
+        # Seed campuses if not already seeded or update Ibadan, Osun, and Lagos locations
         try:
             from app.db.session import AsyncSessionLocal
             from app.models.campus import Campus
             from sqlalchemy import select, update
             async with AsyncSessionLocal() as session:
-                campus_check = await session.execute(select(Campus).limit(1))
-                if not campus_check.scalar_one_or_none():
-                    seeded_campuses = [
-                        Campus(
-                            name="Lead City University",
-                            acronym="LCU",
-                            state="Ibadan",
-                            popular_hostels=["Achievers Hall", "Peace Hall", "Senate Hall", "Honours Hall"]
-                        ),
-                        Campus(
-                            name="University of Ibadan",
-                            acronym="UI",
-                            state="Ibadan",
-                            popular_hostels=["Kuti", "Bello", "Queen Idia", "Awo", "Tedder", "Mellanby", "Zik", "Abadina", "Agbowo"]
-                        ),
-                        Campus(
-                            name="The Polytechnic, Ibadan",
-                            acronym="Poly Ibadan",
-                            state="Ibadan",
-                            popular_hostels=["North Campus", "South Campus", "Apete", "Middle Gate", "Ologuneru"]
-                        ),
-                        Campus(
-                            name="KolaDaisi University",
-                            acronym="KDU",
-                            state="Ibadan",
-                            popular_hostels=["KM 18 Ibadan-Oyo Expressway", "Kings Hall", "Queens Hall"]
-                        ),
-                        Campus(
-                            name="First Technical University",
-                            acronym="Tech-U",
-                            state="Ibadan",
-                            popular_hostels=["University Hostel", "Lagos-Ibadan Expressway", "Alomaja"]
-                        ),
-                        Campus(
-                            name="Dominican University",
-                            acronym="DU",
-                            state="Ibadan",
-                            popular_hostels=["Dominican Student Hostel", "Samonda", "Poly Road"]
-                        ),
-                        Campus(
-                            name="Precious Cornerstone University",
-                            acronym="PCU",
-                            state="Ibadan",
-                            popular_hostels=["Grace Hall", "Peace Hall", "Olaogun"]
-                        ),
-                        Campus(
-                            name="Federal College of Animal Health and Production Technology",
-                            acronym="FCAH&PT",
-                            state="Ibadan",
-                            popular_hostels=["Moor Plantation", "Apata", "College Hostel"]
-                        ),
-                        Campus(
-                            name="Federal College of Forestry",
-                            acronym="FCF",
-                            state="Ibadan",
-                            popular_hostels=["Jericho Campus", "Forestry Hall", "Dugbe"]
-                        ),
-                        Campus(
-                            name="Federal School of Statistics",
-                            acronym="FSS",
-                            state="Ibadan",
-                            popular_hostels=["Sango Campus", "UI Road"]
-                        ),
-                        Campus(
-                            name="University of Lagos",
-                            acronym="UNILAG",
-                            state="Lagos",
-                            popular_hostels=["Jaja", "Moremi", "Mariere", "Eni Njoku", "Madam Tinubu", "Biobaku", "Fagunwa", "New Hall", "Akintunde"]
-                        ),
-                        Campus(
-                            name="Obafemi Awolowo University",
-                            acronym="OAU",
-                            state="Osun",
-                            popular_hostels=["Angola", "Mozambique", "Fajuyi", "Awolowo", "Moremi", "Akintola", "ETF"]
-                        ),
-                        Campus(
-                            name="Federal University of Technology, Akure",
-                            acronym="FUTA",
-                            state="Ondo",
-                            popular_hostels=["Jibowu", "Abiola", "Oluwafemi", "Albert", "South Gate", "North Gate"]
-                        )
-                    ]
-                    session.add_all(seeded_campuses)
-                    await session.commit()
-                    logger.info("Successfully seeded Nigerian tertiary campuses.")
-                else:
-                    # Ensure LCU and UI state are set to Ibadan
-                    await session.execute(update(Campus).where(Campus.acronym.in_(["LCU", "UI"])).values(state="Ibadan"))
-                    await session.commit()
+                existing_res = await session.execute(select(Campus))
+                existing_campuses = {c.name.strip().lower(): c for c in existing_res.scalars().all()}
+
+                all_target_campuses = [
+                    # IBADAN CLUSTER
+                    {
+                        "name": "Lead City University",
+                        "acronym": "LCU",
+                        "state": "Ibadan",
+                        "popular_hostels": ["Achievers Hall", "Peace Hall", "Senate Hall", "Honours Hall"]
+                    },
+                    {
+                        "name": "University of Ibadan",
+                        "acronym": "UI",
+                        "state": "Ibadan",
+                        "popular_hostels": ["Kuti", "Bello", "Queen Idia", "Awo", "Tedder", "Mellanby", "Zik", "Abadina", "Agbowo"]
+                    },
+                    {
+                        "name": "The Polytechnic, Ibadan",
+                        "acronym": "Poly Ibadan",
+                        "state": "Ibadan",
+                        "popular_hostels": ["North Campus", "South Campus", "Apete", "Middle Gate", "Ologuneru"]
+                    },
+                    {
+                        "name": "KolaDaisi University",
+                        "acronym": "KDU",
+                        "state": "Ibadan",
+                        "popular_hostels": ["KM 18 Ibadan-Oyo Expressway", "Kings Hall", "Queens Hall"]
+                    },
+                    {
+                        "name": "First Technical University",
+                        "acronym": "Tech-U",
+                        "state": "Ibadan",
+                        "popular_hostels": ["University Hostel", "Lagos-Ibadan Expressway", "Alomaja"]
+                    },
+                    {
+                        "name": "Dominican University",
+                        "acronym": "DU",
+                        "state": "Ibadan",
+                        "popular_hostels": ["Dominican Student Hostel", "Samonda", "Poly Road"]
+                    },
+                    {
+                        "name": "Precious Cornerstone University",
+                        "acronym": "PCU",
+                        "state": "Ibadan",
+                        "popular_hostels": ["Grace Hall", "Peace Hall", "Olaogun"]
+                    },
+                    {
+                        "name": "Federal College of Animal Health and Production Technology",
+                        "acronym": "FCAH&PT",
+                        "state": "Ibadan",
+                        "popular_hostels": ["Moor Plantation", "Apata", "College Hostel"]
+                    },
+                    {
+                        "name": "Federal College of Forestry",
+                        "acronym": "FCF",
+                        "state": "Ibadan",
+                        "popular_hostels": ["Jericho Campus", "Forestry Hall", "Dugbe"]
+                    },
+                    {
+                        "name": "Federal School of Statistics",
+                        "acronym": "FSS",
+                        "state": "Ibadan",
+                        "popular_hostels": ["Sango Campus", "UI Road"]
+                    },
+
+                    # OSUN STATE (ALL UNIVERSITIES & MAJOR TERTIARY HUBS)
+                    {
+                        "name": "Obafemi Awolowo University",
+                        "acronym": "OAU",
+                        "state": "Osun",
+                        "popular_hostels": ["Angola", "Mozambique", "Fajuyi", "Awolowo", "Moremi", "Akintola", "ETF", "Maintenance", "Asher"]
+                    },
+                    {
+                        "name": "Osun State University",
+                        "acronym": "UNIOSUN",
+                        "state": "Osun",
+                        "popular_hostels": ["Osogbo Main Campus", "Oke-Baale", "Ikire Campus", "Okuku Campus", "Ejigbo Campus", "Ifetedo Campus", "Ipetu-Ijesha"]
+                    },
+                    {
+                        "name": "Federal University of Health Sciences, Ila-Orangun",
+                        "acronym": "FUHSI",
+                        "state": "Osun",
+                        "popular_hostels": ["Main Campus Hostel", "Ila-Orangun Central", "Ajaba Road"]
+                    },
+                    {
+                        "name": "University of Ilesa",
+                        "acronym": "UNILESA",
+                        "state": "Osun",
+                        "popular_hostels": ["Main Campus Hostel", "Imo Area", "Ilesa Central", "Brewery Area"]
+                    },
+                    {
+                        "name": "Bowen University",
+                        "acronym": "Bowen",
+                        "state": "Osun",
+                        "popular_hostels": ["Luke Hall", "Mark Hall", "Matthew Hall", "John Hall", "Dorcas Hall", "Mary Hall", "Iwo Campus"]
+                    },
+                    {
+                        "name": "Redeemer's University",
+                        "acronym": "RUN",
+                        "state": "Osun",
+                        "popular_hostels": ["Queen Esther Hall", "Dorcas Hall", "Deborah Hall", "Daniel Hall", "Paul Hall", "Ede Main Campus"]
+                    },
+                    {
+                        "name": "Adeleke University",
+                        "acronym": "AU",
+                        "state": "Osun",
+                        "popular_hostels": ["Grace Hall", "Wisdom Hall", "Spring of Life", "Ede Campus"]
+                    },
+                    {
+                        "name": "Fountain University",
+                        "acronym": "Fountain",
+                        "state": "Osun",
+                        "popular_hostels": ["Khadijah Hall", "Aisha Hall", "Osogbo Campus", "Oke-Osun"]
+                    },
+                    {
+                        "name": "Oduduwa University",
+                        "acronym": "OUI",
+                        "state": "Osun",
+                        "popular_hostels": ["Ipetumodu Campus", "Prestige Hall", "Royal Hall", "Ife-Ibadan Expressway"]
+                    },
+                    {
+                        "name": "Joseph Ayo Babalola University",
+                        "acronym": "JABU",
+                        "state": "Osun",
+                        "popular_hostels": ["Bethel Hall", "Zion Hall", "Ikeji-Arakeji", "Shiloh Hall"]
+                    },
+                    {
+                        "name": "Kings University",
+                        "acronym": "Kings Uni",
+                        "state": "Osun",
+                        "popular_hostels": ["Ode-Omu Campus", "Alpha Hall", "Omega Hall"]
+                    },
+                    {
+                        "name": "Westland University",
+                        "acronym": "Westland",
+                        "state": "Osun",
+                        "popular_hostels": ["Iwo Main Campus", "Unity Hall", "Progress Hall"]
+                    },
+                    {
+                        "name": "Mercy Medical University",
+                        "acronym": "MMU",
+                        "state": "Osun",
+                        "popular_hostels": ["Iwo Campus", "Clinical Science Hostel"]
+                    },
+                    {
+                        "name": "Federal Polytechnic, Ede",
+                        "acronym": "Federal Poly Ede",
+                        "state": "Osun",
+                        "popular_hostels": ["North Campus", "South Campus", "Agip Area", "Ede Central"]
+                    },
+                    {
+                        "name": "Osun State Polytechnic, Iree",
+                        "acronym": "OSPOLY",
+                        "state": "Osun",
+                        "popular_hostels": ["Koko Area", "Ladoja Area", "Iree Main Campus"]
+                    },
+                    {
+                        "name": "Osun State College of Technology, Esa-Oke",
+                        "acronym": "OSCOTECH",
+                        "state": "Osun",
+                        "popular_hostels": ["Esa-Oke Campus", "Oke-Imesi Road"]
+                    },
+
+                    # LAGOS STATE (ALL UNIVERSITIES & MAJOR TERTIARY HUBS)
+                    {
+                        "name": "University of Lagos",
+                        "acronym": "UNILAG",
+                        "state": "Lagos",
+                        "popular_hostels": ["Jaja", "Moremi", "Mariere", "Eni Njoku", "Madam Tinubu", "Biobaku", "Fagunwa", "New Hall", "Akintunde"]
+                    },
+                    {
+                        "name": "Lagos State University",
+                        "acronym": "LASU",
+                        "state": "Lagos",
+                        "popular_hostels": ["Ojo Main Campus", "Iba", "Igando", "Frankie", "Badagry Expressway", "Epe Campus", "LASUTH Ikeja"]
+                    },
+                    {
+                        "name": "Lagos State University of Science and Technology",
+                        "acronym": "LASUSTECH",
+                        "state": "Lagos",
+                        "popular_hostels": ["Ikorodu Campus", "First Gate", "Lucky Fibre", "Odogunyan", "Isolo Campus"]
+                    },
+                    {
+                        "name": "Lagos State University of Education",
+                        "acronym": "LASUED",
+                        "state": "Lagos",
+                        "popular_hostels": ["Otto/Ijanikin Campus", "Noforija Epe Campus", "Iyana School", "Cele"]
+                    },
+                    {
+                        "name": "Pan-Atlantic University",
+                        "acronym": "PAU",
+                        "state": "Lagos",
+                        "popular_hostels": ["Pearl Hostel", "Amethyst Hostel", "Emerald Hostel", "Ibeju-Lekki", "Eleko"]
+                    },
+                    {
+                        "name": "Caleb University",
+                        "acronym": "Caleb",
+                        "state": "Lagos",
+                        "popular_hostels": ["Imota Campus", "Glory Hall", "Wisdom Hall", "Ikorodu-Itokin Road"]
+                    },
+                    {
+                        "name": "Anchor University",
+                        "acronym": "Anchor",
+                        "state": "Lagos",
+                        "popular_hostels": ["Ayobo Campus", "Paul Hall", "Peter Hall", "Lydia Hall", "Ipaja"]
+                    },
+                    {
+                        "name": "Augustine University",
+                        "acronym": "AUL",
+                        "state": "Lagos",
+                        "popular_hostels": ["Ilara-Epe Campus", "St. Thomas More", "St. Monica"]
+                    },
+                    {
+                        "name": "Eko University of Medicine and Health Sciences",
+                        "acronym": "EKOUNIMED",
+                        "state": "Lagos",
+                        "popular_hostels": ["Ijanikin Campus", "College Hostel", "Vespa Area"]
+                    },
+                    {
+                        "name": "James Hope University",
+                        "acronym": "JHU",
+                        "state": "Lagos",
+                        "popular_hostels": ["Twin Lakes Campus", "Lekki Phase 1", "Victoria Island"]
+                    },
+                    {
+                        "name": "Maranatha University",
+                        "acronym": "Maranatha",
+                        "state": "Lagos",
+                        "popular_hostels": ["Lekki Campus", "Grace Hall", "Faith Hall"]
+                    },
+                    {
+                        "name": "Nigerian University of Technology and Management",
+                        "acronym": "NUTM",
+                        "state": "Lagos",
+                        "popular_hostels": ["Apapa / Victoria Island Campus", "Scholars Hall"]
+                    },
+                    {
+                        "name": "Yaba College of Technology",
+                        "acronym": "YABATECH",
+                        "state": "Lagos",
+                        "popular_hostels": ["Bakassi Hall", "Moshood Abiola", "Postgraduate Hall", "Akata", "Epe Campus"]
+                    },
+                    {
+                        "name": "Federal College of Education (Technical), Akoka",
+                        "acronym": "FCET Akoka",
+                        "state": "Lagos",
+                        "popular_hostels": ["Akoka Campus", "Main Hall", "St. Finbarrs Area"]
+                    },
+
+                    # OTHER LAUNCH REGIONS
+                    {
+                        "name": "Covenant University",
+                        "acronym": "CU",
+                        "state": "Ogun",
+                        "popular_hostels": ["Peter Hall", "Paul Hall", "John Hall", "Esther Hall", "Lydia Hall", "Dorcas Hall"]
+                    },
+                    {
+                        "name": "Babcock University",
+                        "acronym": "BU",
+                        "state": "Ogun",
+                        "popular_hostels": ["Topaz", "Sapphire", "Emerald", "Diamond", "Gideon Troopers", "Welch"]
+                    },
+                    {
+                        "name": "Federal University of Technology, Akure",
+                        "acronym": "FUTA",
+                        "state": "Ondo",
+                        "popular_hostels": ["Jibowu", "Abiola", "Oluwafemi", "Albert", "South Gate", "North Gate"]
+                    },
+                    {
+                        "name": "University of Ilorin",
+                        "acronym": "UNILORIN",
+                        "state": "Kwara",
+                        "popular_hostels": ["Village 1", "Village 2", "Zamfara", "Al-Hikmah", "Tanke Area", "PS"]
+                    },
+                    {
+                        "name": "University of Benin",
+                        "acronym": "UNIBEN",
+                        "state": "Edo",
+                        "popular_hostels": ["Hall 1", "Hall 2", "Hall 3", "Hall 4", "NDDC", "Ugbowo Campus"]
+                    }
+                ]
+
+                to_insert = []
+                for c_data in all_target_campuses:
+                    key = c_data["name"].strip().lower()
+                    if key not in existing_campuses:
+                        to_insert.append(Campus(
+                            name=c_data["name"].strip(),
+                            acronym=c_data["acronym"].strip().upper(),
+                            state=c_data["state"].strip(),
+                            popular_hostels=c_data["popular_hostels"]
+                        ))
+                    else:
+                        # Update state and acronym to ensure consistency
+                        existing_obj = existing_campuses[key]
+                        existing_obj.acronym = c_data["acronym"].strip().upper()
+                        existing_obj.state = c_data["state"].strip()
+                        if c_data.get("popular_hostels"):
+                            existing_obj.popular_hostels = c_data["popular_hostels"]
+
+                if to_insert:
+                    session.add_all(to_insert)
+                    logger.info(f"Seeding {len(to_insert)} new Nigerian campuses.")
+                await session.commit()
+                logger.info("Successfully synced all Osun, Lagos, and Ibadan tertiary campuses.")
         except Exception as seed_err:
             logger.warning(f"Campus seeding note: {seed_err}")
     except Exception as e:
