@@ -220,6 +220,41 @@ async def get_recent_otps(
     ]
 
 
+@router.get("/recent-signups")
+async def get_recent_signups(
+    limit: int = Query(default=25, ge=1, le=50),
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """
+    Returns the most recent user registrations (including Google OAuth signups).
+    """
+    stmt = (
+        select(User)
+        .options(joinedload(User.campus))
+        .order_by(desc(User.created_at))
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    users = result.unique().scalars().all()
+
+    return [
+        {
+            "id": str(u.id),
+            "name": u.name or "Unnamed",
+            "email": u.email,
+            "phone": u.phone or "No Phone",
+            "campus": u.campus.name if u.campus else "No Campus",
+            "is_phone_verified": u.is_phone_verified,
+            "account_type": u.account_type,
+            "business_name": u.business_name,
+            "created_at": u.created_at.isoformat() if u.created_at else None,
+            "auth_method": "Google" if ("@gmail.com" in u.email.lower() and not u.phone) else "Phone/Email",
+        }
+        for u in users
+    ]
+
+
 @router.post("/users/{user_id}/force-verify")
 async def force_verify_user(
     user_id: uuid.UUID,
@@ -323,20 +358,33 @@ async def verify_direct_identifier(
         }
 
 
+@router.get("/kyc")
 @router.get("/kyc/pending")
 async def list_pending_kyc(
+    status_filter: Optional[str] = "all",  # "all", "pending", "verified", "rejected"
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """
-    Lists all store owners and users with pending KYC reviews.
+    Lists store owners and users with KYC records.
+    Filters by status ('all', 'pending', 'verified', 'rejected').
     """
     stmt = (
         select(User)
         .options(joinedload(User.campus))
-        .where(User.kyc_status == "pending")
-        .order_by(desc(User.kyc_submitted_at))
+        .where(
+            or_(
+                User.kyc_status.in_(["pending", "verified", "rejected"]),
+                User.account_type.in_(["store", "business"]),
+                User.kyc_id_card_url.isnot(None),
+            )
+        )
+        .order_by(desc(User.kyc_submitted_at), desc(User.created_at))
     )
+
+    if status_filter and status_filter != "all":
+        stmt = stmt.where(User.kyc_status == status_filter)
+
     result = await db.execute(stmt)
     users = result.unique().scalars().all()
 
@@ -351,12 +399,14 @@ async def list_pending_kyc(
             "business_category": u.business_category,
             "business_address": u.business_address,
             "campus": u.campus.name if u.campus else "No Campus",
+            "kyc_status": u.kyc_status,
             "kyc_user_type": u.kyc_user_type,
             "kyc_id_type": u.kyc_id_type,
             "kyc_id_number": u.kyc_id_number,
             "kyc_id_card_url": u.kyc_id_card_url,
             "kyc_selfie_url": u.kyc_selfie_url,
             "kyc_submitted_at": u.kyc_submitted_at.isoformat() if u.kyc_submitted_at else None,
+            "kyc_verified_at": u.kyc_verified_at.isoformat() if u.kyc_verified_at else None,
         }
         for u in users
     ]
