@@ -63,7 +63,6 @@ async def authenticate_websocket(websocket: WebSocket) -> Optional[User]:
             select(User).options(joinedload(User.profile)).where(User.id == user_id)
         )
         user = res.unique().scalar_one_or_none()
-        user = res.scalar_one_or_none()
         if user and user.is_active:
             return user
     return None
