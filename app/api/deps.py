@@ -114,3 +114,23 @@ async def get_current_active_user(
             detail="Inactive user account"
         )
     return current_user
+
+def is_admin_email(email: Optional[str]) -> bool:
+    if not email:
+        return False
+    authorized = [e.strip().lower() for e in settings.ADMIN_EMAILS.split(",") if e.strip()]
+    return email.strip().lower() in authorized
+
+async def get_current_admin(
+    current_user: User = Depends(get_current_active_user),
+) -> User:
+    """
+    Verifies that the authenticated user's email is on the authorized ADMIN_EMAILS list.
+    Strictly returns 403 Forbidden otherwise.
+    """
+    if not is_admin_email(current_user.email):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Administrative privileges required."
+        )
+    return current_user
