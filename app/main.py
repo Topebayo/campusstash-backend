@@ -511,7 +511,7 @@ async def health_check():
         'timestamp': time.time()
     }
 
-from app.api.v1 import auth, listings, dropzones, chat, escrow, users, conversations, campuses, item_requests
+from app.api.v1 import auth, listings, dropzones, chat, escrow, users, conversations, campuses, item_requests, whatsapp
 
 # Auth routes (mounted at both /api/auth and /api/v1/auth)
 app.include_router(auth.router, prefix='/api/auth', tags=['auth'])
@@ -540,6 +540,10 @@ app.include_router(campuses.router, prefix='/api/v1/campuses', tags=['campuses']
 # Wanted Board / Student Item Requests (public browse, auth create)
 app.include_router(item_requests.router, prefix='/api/requests', tags=['requests'])
 app.include_router(item_requests.router, prefix='/api/v1/requests', tags=['requests'])
+
+# Meta WhatsApp Cloud API (Webhook verification, commands, and inbound/outbound messaging)
+app.include_router(whatsapp.router, prefix='/api/whatsapp', tags=['whatsapp'])
+app.include_router(whatsapp.router, prefix='/api/v1/whatsapp', tags=['whatsapp'])
 
 
 # ─── Dynamic Open Graph (OG) Tag Injector for WhatsApp & Social Sharing ───

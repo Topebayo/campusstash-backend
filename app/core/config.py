@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     ADMIN_BYPASS_PIN: str = "7799"
     ADMIN_EMAILS: str = "salesflowingai@gmail.com,admin@campusstash.ng"
 
+    # Meta WhatsApp Cloud API
+    WHATSAPP_VERIFY_TOKEN: str = "campusstash_meta_verify_2026"
+    WHATSAPP_ACCESS_TOKEN: Optional[str] = None
+    WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None
+    WHATSAPP_BUSINESS_ACCOUNT_ID: Optional[str] = None
+    ADMIN_WHATSAPP_NUMBERS: str = "2348000000000"  # Comma-separated authorized admin WhatsApp numbers
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
     def get_cors_origins(self) -> List[str]:
