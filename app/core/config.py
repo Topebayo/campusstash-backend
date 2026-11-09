@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     DEV_BYPASS_OTP: Optional[str] = None
     ADMIN_BYPASS_OTP: str = "990011"
     ADMIN_BYPASS_PIN: str = "7799"
-    ADMIN_EMAILS: str = "titantemitopebayoo@gmail.com,salesflowingai@gmail.com,admin@campusstash.ng"
+    ADMIN_EMAILS: str = "topebayo113@gmail.com,titantemitopebayoo@gmail.com,salesflowingai@gmail.com,admin@campusstash.ng"
 
     # Meta WhatsApp Cloud API
     WHATSAPP_VERIFY_TOKEN: str = "campusstash_meta_verify_2026"
