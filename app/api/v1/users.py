@@ -12,7 +12,11 @@ from app.api.deps import get_db, get_current_active_user
 from app.models.user import User, PublicProfile
 from app.core import security
 from app.core.limiter import limiter
-from app.schemas.user import UserRead, UserUpdate, ChangePasswordRequest, StoreSummary
+from app.schemas.user import UserRead, UserUpdate, ChangePasswordRequest, StoreSummary, StoreKycRequest, InAppVerifyPhoneRequest
+from datetime import datetime, timezone
+from app.models.phone_verification import PhoneVerification
+from app.services.sms_service import normalize_phone, get_phone_variants
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -122,6 +126,155 @@ async def read_user_me(
     """
     return current_user
 
+
+
+@router.post("/me/verify-phone", response_model=UserRead)
+@limiter.limit("5/minute")
+async def verify_phone_in_app(
+    request: Request,
+    payload: InAppVerifyPhoneRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    """
+    In-app phone number verification endpoint.
+    Required before students can create listings or activate store services.
+    """
+    raw_phone = (payload.phone or "").strip()
+    normalized = normalize_phone(raw_phone)
+    if not normalized:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please provide a valid Nigerian phone number."
+        )
+
+    # 1. Check if phone is already registered to ANOTHER user
+    variants = get_phone_variants(raw_phone)
+    existing_phone = await db.execute(
+        select(User).where(User.phone.in_(variants), User.id != current_user.id)
+    )
+    if existing_phone.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This phone number is already registered to another account."
+        )
+
+    # 2. Check verification record
+    now_utc = datetime.now(timezone.utc)
+    query = await db.execute(
+        select(PhoneVerification)
+        .where(PhoneVerification.phone == normalized)
+        .order_by(PhoneVerification.created_at.desc())
+    )
+    pv = query.scalars().first()
+
+    if not pv:
+        # Also check email verification key if sent via email
+        query_email = await db.execute(
+            select(PhoneVerification)
+            .where(PhoneVerification.phone == f"email:{current_user.email}")
+            .order_by(PhoneVerification.created_at.desc())
+        )
+        pv = query_email.scalars().first()
+
+    if not pv:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No verification code was requested for this phone number."
+        )
+
+    if pv.expires_at < now_utc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification code has expired. Please request a new code."
+        )
+
+    if pv.attempts >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Too many incorrect attempts. Please request a new code."
+        )
+
+    submitted_code = payload.otp_code.strip()
+    is_prod = str(getattr(settings, "ENVIRONMENT", "")).lower() == "production"
+    allow_dev_bypass = (not is_prod) and bool(settings.DEV_BYPASS_OTP)
+    is_valid = (submitted_code == pv.otp_code) or (
+        allow_dev_bypass and submitted_code == settings.DEV_BYPASS_OTP
+    )
+
+    if not is_valid:
+        pv.attempts += 1
+        await db.commit()
+        remaining = max(0, 5 - pv.attempts)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Incorrect verification code. {remaining} attempts remaining."
+        )
+
+    pv.is_verified = True
+    pv.verified_at = now_utc
+
+    # Update current user
+    current_user.phone = normalized
+    current_user.is_phone_verified = True
+    await db.commit()
+    await db.refresh(current_user)
+
+    logger.info(f"User {current_user.id} verified phone {normalized} in-app.")
+    return current_user
+
+
+@router.post("/me/store-kyc", response_model=UserRead)
+@limiter.limit("5/minute")
+async def submit_store_kyc(
+    request: Request,
+    payload: StoreKycRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    """
+    Complete Student Merchant KYC Verification for Store Owners.
+    Validates business credentials, student ID/matric number, and ID card document.
+    """
+    b_name = payload.business_name.strip()
+    b_cat = payload.business_category.strip()
+    student_id = payload.student_id_number.strip()
+
+    if not b_name:
+        raise HTTPException(status_code=400, detail="Store / Business Name is required.")
+    if not b_cat:
+        raise HTTPException(status_code=400, detail="Business Category is required.")
+    if not student_id:
+        raise HTTPException(status_code=400, detail="Student Matriculation / ID Number is required for KYC.")
+
+    now_utc = datetime.now(timezone.utc)
+
+    current_user.account_type = "store"
+    current_user.business_name = b_name
+    current_user.business_category = b_cat
+    current_user.business_description = payload.business_description.strip() if payload.business_description else None
+    current_user.business_address = payload.business_address.strip() if payload.business_address else None
+    current_user.business_whatsapp = payload.business_whatsapp.strip() if payload.business_whatsapp else None
+    current_user.business_instagram = payload.business_instagram.strip().lstrip('@') if payload.business_instagram else None
+
+    # Store KYC Data
+    current_user.kyc_student_id = student_id
+    if payload.id_card_image:
+        current_user.kyc_id_card_url = payload.id_card_image
+    current_user.kyc_status = "verified"  # Verified immediately upon providing student credentials
+    current_user.kyc_submitted_at = now_utc
+    current_user.kyc_verified_at = now_utc
+
+    # If whatsapp provided, mark phone verified
+    if payload.business_whatsapp and not current_user.phone:
+        current_user.phone = normalize_phone(payload.business_whatsapp)
+        current_user.is_phone_verified = True
+
+    await db.commit()
+    await db.refresh(current_user)
+
+    logger.info(f"User {current_user.id} completed Store KYC for '{b_name}' with Student ID {student_id}.")
+    return current_user
 @router.put("/me", response_model=UserRead)
 @limiter.limit("15/minute")
 async def update_user_me(

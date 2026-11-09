@@ -32,6 +32,13 @@ class User(Base):
     business_whatsapp: Mapped[str | None] = mapped_column(String(50), nullable=True)
     business_instagram: Mapped[str | None] = mapped_column(String(100), nullable=True)
     
+    # Store Owner KYC Verification
+    kyc_status: Mapped[str] = mapped_column(String(50), default="unverified", nullable=False)  # 'unverified', 'pending', 'verified'
+    kyc_student_id: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Student Matric / ID Number
+    kyc_id_card_url: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Photo / Document proof
+    kyc_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    kyc_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 

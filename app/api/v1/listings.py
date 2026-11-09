@@ -216,6 +216,11 @@ async def create_listing(
     Supports both standard JSON payload (ListingCreate) and multipart Form data.
     Rate limited to 10 listings per minute.
     """
+    if not current_user.is_phone_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Phone verification required before posting listings. Please verify your phone number to keep campus safe."
+        )
     content_type = request.headers.get("content-type", "")
     
     title: str = ""
@@ -371,6 +376,11 @@ async def create_batch_listings(
     Vendor Batch Drop: Bulk upload up to 30 items in a single request.
     Ideal for student campus businesses (thrift drops, accessories, restocks).
     """
+    if not current_user.is_phone_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Phone verification required before posting listings. Please verify your phone number to keep campus safe."
+        )
     if not batch_in.items:
         raise HTTPException(status_code=400, detail="No items provided in batch drop")
 

@@ -65,6 +65,11 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_address VARCHAR(255);'))
                 await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_whatsapp VARCHAR(50);'))
                 await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_instagram VARCHAR(100);'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS kyc_status VARCHAR(50) DEFAULT \'unverified\';'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS kyc_student_id VARCHAR(100);'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS kyc_id_card_url VARCHAR(500);'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS kyc_submitted_at TIMESTAMP WITH TIME ZONE;'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS kyc_verified_at TIMESTAMP WITH TIME ZONE;'))
             except Exception:
                 try:
                     await conn.execute(text('ALTER TABLE user ADD COLUMN account_type VARCHAR(50) DEFAULT \'individual\';'))
@@ -74,6 +79,11 @@ async def lifespan(app: FastAPI):
                     await conn.execute(text('ALTER TABLE user ADD COLUMN business_address VARCHAR(255);'))
                     await conn.execute(text('ALTER TABLE user ADD COLUMN business_whatsapp VARCHAR(50);'))
                     await conn.execute(text('ALTER TABLE user ADD COLUMN business_instagram VARCHAR(100);'))
+                    await conn.execute(text('ALTER TABLE user ADD COLUMN kyc_status VARCHAR(50) DEFAULT \'unverified\';'))
+                    await conn.execute(text('ALTER TABLE user ADD COLUMN kyc_student_id VARCHAR(100);'))
+                    await conn.execute(text('ALTER TABLE user ADD COLUMN kyc_id_card_url VARCHAR(500);'))
+                    await conn.execute(text('ALTER TABLE user ADD COLUMN kyc_submitted_at TIMESTAMP;'))
+                    await conn.execute(text('ALTER TABLE user ADD COLUMN kyc_verified_at TIMESTAMP;'))
                 except Exception:
                     pass
         logger.info("Database schemas verified and synchronized successfully.")

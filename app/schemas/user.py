@@ -79,6 +79,11 @@ class UserRead(BaseModel):
     business_address: Optional[str] = None
     business_whatsapp: Optional[str] = None
     business_instagram: Optional[str] = None
+    kyc_status: str = "unverified"
+    kyc_student_id: Optional[str] = None
+    kyc_id_card_url: Optional[str] = None
+    kyc_submitted_at: Optional[datetime] = None
+    kyc_verified_at: Optional[datetime] = None
     campus_id: Optional[uuid.UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -97,7 +102,32 @@ class UserUpdate(BaseModel):
     business_address: Optional[str] = None
     business_whatsapp: Optional[str] = None
     business_instagram: Optional[str] = None
+    kyc_status: Optional[str] = None
+    kyc_student_id: Optional[str] = None
+    kyc_id_card_url: Optional[str] = None
     campus_id: Optional[uuid.UUID] = None
+
+class GoogleAuthRequest(BaseModel):
+    credential: Optional[str] = Field(None, description="Google ID Token JWT from Google Identity Services")
+    email: Optional[EmailStr] = None
+    name: Optional[str] = None
+    picture: Optional[str] = None
+    google_id: Optional[str] = None
+    campus_id: Optional[uuid.UUID] = None
+
+class StoreKycRequest(BaseModel):
+    business_name: str = Field(..., min_length=2, max_length=255)
+    business_category: str = Field(..., min_length=2, max_length=100)
+    student_id_number: str = Field(..., min_length=2, max_length=100)
+    business_description: Optional[str] = None
+    business_address: Optional[str] = None
+    business_whatsapp: Optional[str] = None
+    business_instagram: Optional[str] = None
+    id_card_image: Optional[str] = None
+
+class InAppVerifyPhoneRequest(BaseModel):
+    phone: str = Field(..., min_length=7, max_length=30)
+    otp_code: str = Field(..., min_length=4, max_length=10)
 
 
 class ChangePasswordRequest(BaseModel):
@@ -112,6 +142,7 @@ class StoreSummary(BaseModel):
     burner_handle: Optional[str] = None
     avatar_slug: Optional[str] = None
     account_type: str = "store"
+    kyc_status: str = "unverified"
     business_name: Optional[str] = None
     business_category: Optional[str] = None
     business_description: Optional[str] = None

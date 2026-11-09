@@ -20,7 +20,7 @@ from app.core.limiter import limiter
 from app.models.user import User, PublicProfile
 from app.models.phone_verification import PhoneVerification
 from app.schemas.token import TokenResponse, RefreshTokenRequest
-from app.schemas.user import UserRegister, UserRead, LoginRequest, SendOtpRequest, VerifyOtpRequest, OtpResponse, ForgotPasswordSendOtpRequest, ForgotPasswordResetRequest
+from app.schemas.user import UserRegister, UserRead, LoginRequest, SendOtpRequest, VerifyOtpRequest, OtpResponse, ForgotPasswordSendOtpRequest, ForgotPasswordResetRequest, GoogleAuthRequest
 from app.services.sms_service import normalize_phone, send_phone_otp, get_phone_variants
 from app.services.email_service import send_email_otp
 
@@ -282,6 +282,125 @@ async def verify_phone_otp(
     )
 
 
+@router.post("/google", response_model=TokenResponse)
+@limiter.limit("10/minute")
+async def google_auth(
+    request: Request,
+    req: GoogleAuthRequest,
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """
+    Authenticate or register user via Google (Gmail) One-Tap / OAuth Credential.
+    Instant and frictionless login for students.
+    """
+    import base64
+    import json
+    import re
+    
+    email = None
+    name = None
+    picture = None
+    google_id = None
+    
+    # 1. Decode Google ID Token JWT if credential passed
+    if req.credential:
+        try:
+            # JWT format: header.payload.signature
+            parts = req.credential.strip().split(".")
+            if len(parts) >= 2:
+                # Add padding for base64
+                payload_b64 = parts[1]
+                payload_b64 += "=" * ((4 - len(payload_b64) % 4) % 4)
+                decoded_bytes = base64.urlsafe_b64decode(payload_b64.encode("utf-8"))
+                claims = json.loads(decoded_bytes.decode("utf-8"))
+                
+                email = claims.get("email")
+                name = claims.get("name")
+                picture = claims.get("picture")
+                google_id = claims.get("sub")
+        except Exception as e:
+            logger.warning(f"Could not parse Google credential JWT: {e}")
+            
+    # Fallback to direct fields
+    if not email and req.email:
+        email = req.email
+    if not name and req.name:
+        name = req.name
+    if not picture and req.picture:
+        picture = req.picture
+    if not google_id and req.google_id:
+        google_id = req.google_id
+
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google Sign-In failed: No verified email address was provided."
+        )
+
+    clean_email = email.strip().lower()
+
+    # 2. Check if user already exists
+    res = await db.execute(
+        select(User).options(selectinload(User.profile)).where(func.lower(User.email) == clean_email)
+    )
+    user = res.scalar_one_or_none()
+
+    if user:
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account has been deactivated."
+            )
+        # If user has no avatar and google provides picture, save it
+        if picture and user.profile and not user.profile.avatar_slug:
+            user.profile.avatar_slug = picture
+            await db.commit()
+            await db.refresh(user)
+        return build_token_response(user)
+
+    # 3. New user registration via Google (instant)
+    # Generate unique burner handle
+    base_handle = re.sub(r'[^a-zA-Z0-9]', '', (name or clean_email.split('@')[0]).lower())[:12]
+    if not base_handle:
+        base_handle = "student"
+    
+    handle = f"{base_handle}_{secrets.token_hex(2)}"
+    # Check uniqueness
+    existing_handle = await db.execute(
+        select(PublicProfile).where(func.lower(PublicProfile.burner_handle) == handle.lower())
+    )
+    if existing_handle.scalar_one_or_none():
+        handle = f"{base_handle}_{secrets.token_hex(3)}"
+
+    display_name = name or clean_email.split('@')[0].capitalize()
+
+    new_user = User(
+        email=clean_email,
+        hashed_password=security.get_password_hash(secrets.token_urlsafe(32)),
+        name=display_name,
+        phone=None,
+        is_phone_verified=False,
+        campus_id=req.campus_id,
+        account_type="individual",
+        kyc_status="unverified"
+    )
+    profile = PublicProfile(
+        burner_handle=handle,
+        avatar_slug=picture,
+        user=new_user
+    )
+
+    db.add(new_user)
+    db.add(profile)
+    await db.commit()
+    await db.refresh(new_user)
+    await db.refresh(profile)
+    new_user.profile = profile
+
+    logger.info(f"New user registered via Google: {clean_email} (@{handle})")
+    return build_token_response(new_user)
+
+
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
 async def register(
@@ -369,7 +488,7 @@ async def register(
         hashed_password=hashed_password,
         name=name,
         phone=phone_cleaned,
-        is_phone_verified=True,
+        is_phone_verified=False,
         campus_id=user_in.campus_id,
         account_type=acc_type,
         business_name=b_name,
