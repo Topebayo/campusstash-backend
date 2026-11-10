@@ -27,6 +27,7 @@ class SellerProfileRead(BaseModel):
     account_type: Optional[str] = "individual"
     business_name: Optional[str] = None
     business_category: Optional[str] = None
+    business_services: Optional[str] = None
     business_description: Optional[str] = None
     business_address: Optional[str] = None
     business_whatsapp: Optional[str] = None

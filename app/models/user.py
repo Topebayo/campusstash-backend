@@ -26,7 +26,8 @@ class User(Base):
     # Account type & Store business details
     account_type: Mapped[str] = mapped_column(String(50), default="individual", nullable=False)
     business_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    business_category: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    business_category: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    business_services: Mapped[str | None] = mapped_column(Text, nullable=True)  # Services rendered (e.g. Lash Tech, Nail Tech, Makeup)
     business_description: Mapped[str | None] = mapped_column(String(500), nullable=True)
     business_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     business_whatsapp: Mapped[str | None] = mapped_column(String(50), nullable=True)

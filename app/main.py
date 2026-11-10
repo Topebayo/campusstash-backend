@@ -60,7 +60,9 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text('ALTER TABLE listing ADD COLUMN IF NOT EXISTS campus_id UUID;'))
                 await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS account_type VARCHAR(50) DEFAULT \'individual\';'))
                 await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_name VARCHAR(255);'))
-                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_category VARCHAR(100);'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_category VARCHAR(255);'))
+                await conn.execute(text('ALTER TABLE "user" ALTER COLUMN business_category TYPE VARCHAR(255);'))
+                await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_services TEXT;'))
                 await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_description VARCHAR(500);'))
                 await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_address VARCHAR(255);'))
                 await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS business_whatsapp VARCHAR(50);'))
@@ -99,6 +101,18 @@ async def lifespan(app: FastAPI):
             from app.models.campus import Campus
             from sqlalchemy import select, update
             async with AsyncSessionLocal() as session:
+                # Migrate generic UNIOSUN to UNIOSUN Osogbo Campus so existing students map smoothly
+                try:
+                    await session.execute(text("""
+                        UPDATE campus 
+                        SET name = 'Osun State University, Osogbo Campus', 
+                            acronym = 'UNIOSUN OSOGBO' 
+                        WHERE acronym = 'UNIOSUN' OR name = 'Osun State University';
+                    """))
+                    await session.commit()
+                except Exception:
+                    pass
+
                 existing_res = await session.execute(select(Campus))
                 existing_campuses = {c.name.strip().lower(): c for c in existing_res.scalars().all()}
 
@@ -173,10 +187,40 @@ async def lifespan(app: FastAPI):
                         "popular_hostels": ["Angola", "Mozambique", "Fajuyi", "Awolowo", "Moremi", "Akintola", "ETF", "Maintenance", "Asher"]
                     },
                     {
-                        "name": "Osun State University",
-                        "acronym": "UNIOSUN",
+                        "name": "Osun State University, Osogbo Campus",
+                        "acronym": "UNIOSUN OSOGBO",
                         "state": "Osun",
-                        "popular_hostels": ["Osogbo Main Campus", "Oke-Baale", "Ikire Campus", "Okuku Campus", "Ejigbo Campus", "Ifetedo Campus", "Ipetu-Ijesha"]
+                        "popular_hostels": ["Osogbo Main Campus", "Oke-Baale", "Powerline", "Stadium Area", "Isale-Osun"]
+                    },
+                    {
+                        "name": "Osun State University, Ikire Campus",
+                        "acronym": "UNIOSUN IKIRE",
+                        "state": "Osun",
+                        "popular_hostels": ["Campus Gate", "Oja Ale", "Sanngo", "Naira & Kobo", "College Hostel"]
+                    },
+                    {
+                        "name": "Osun State University, Okuku Campus",
+                        "acronym": "UNIOSUN OKUKU",
+                        "state": "Osun",
+                        "popular_hostels": ["Okuku Central", "Campus Gate", "Odo-Otin Area", "Adeleke Hall"]
+                    },
+                    {
+                        "name": "Osun State University, Ejigbo Campus",
+                        "acronym": "UNIOSUN EJIGBO",
+                        "state": "Osun",
+                        "popular_hostels": ["Agric Campus Hostel", "Ejigbo Town", "Inisa Road", "Oguro"]
+                    },
+                    {
+                        "name": "Osun State University, Ifetedo Campus",
+                        "acronym": "UNIOSUN IFETEDO",
+                        "state": "Osun",
+                        "popular_hostels": ["College of Law Hostel", "Ifetedo Central", "Garage Area", "Barristers Villa"]
+                    },
+                    {
+                        "name": "Osun State University, Ipetu-Ijesha Campus",
+                        "acronym": "UNIOSUN IPETU-IJESHA",
+                        "state": "Osun",
+                        "popular_hostels": ["Education Campus Hostel", "Ipetu Central", "Expressway Junction", "Ijesha Villa"]
                     },
                     {
                         "name": "Federal University of Health Sciences, Ila-Orangun",

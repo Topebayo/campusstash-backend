@@ -100,6 +100,7 @@ async def list_campus_stores(
             account_type=getattr(u, "account_type", "store") or "store",
             business_name=b_name,
             business_category=b_cat,
+            business_services=getattr(u, "business_services", None),
             business_description=u.business_description,
             business_address=u.business_address,
             business_whatsapp=u.business_whatsapp,
@@ -254,6 +255,7 @@ async def submit_store_kyc(
     current_user.account_type = "store"
     current_user.business_name = b_name
     current_user.business_category = b_cat
+    current_user.business_services = payload.business_services.strip() if payload.business_services else None
     current_user.business_description = payload.business_description.strip() if payload.business_description else None
     current_user.business_address = payload.business_address.strip() if payload.business_address else None
     current_user.business_whatsapp = payload.business_whatsapp.strip() if payload.business_whatsapp else None
@@ -369,6 +371,9 @@ async def update_user_me(
 
     if user_in.business_category is not None:
         current_user.business_category = user_in.business_category.strip() or None
+
+    if user_in.business_services is not None:
+        current_user.business_services = user_in.business_services.strip() or None
 
     if user_in.business_description is not None:
         current_user.business_description = user_in.business_description.strip() or None

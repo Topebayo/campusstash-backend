@@ -22,6 +22,7 @@ class UserRegister(BaseModel):
     account_type: Optional[str] = Field("individual", description="'individual' or 'store'")
     business_name: Optional[str] = None
     business_category: Optional[str] = None
+    business_services: Optional[str] = None
     business_description: Optional[str] = None
     business_address: Optional[str] = None
     business_whatsapp: Optional[str] = None
@@ -75,6 +76,7 @@ class UserRead(BaseModel):
     account_type: str = "individual"
     business_name: Optional[str] = None
     business_category: Optional[str] = None
+    business_services: Optional[str] = None
     business_description: Optional[str] = None
     business_address: Optional[str] = None
     business_whatsapp: Optional[str] = None
@@ -102,6 +104,7 @@ class UserUpdate(BaseModel):
     account_type: Optional[str] = None
     business_name: Optional[str] = None
     business_category: Optional[str] = None
+    business_services: Optional[str] = None
     business_description: Optional[str] = None
     business_address: Optional[str] = None
     business_whatsapp: Optional[str] = None
@@ -125,7 +128,8 @@ class GoogleAuthRequest(BaseModel):
 
 class StoreKycRequest(BaseModel):
     business_name: str = Field(..., min_length=2, max_length=255)
-    business_category: str = Field(..., min_length=2, max_length=100)
+    business_category: str = Field(..., min_length=2, max_length=255)
+    business_services: Optional[str] = None
     user_type: str = Field("student", description="'student' or 'non_student'")
     student_id_number: Optional[str] = None
     id_type: Optional[str] = Field("student_id", description="student_id, nin, voters_card, drivers_license, passport, national_id")
@@ -157,6 +161,7 @@ class StoreSummary(BaseModel):
     kyc_status: str = "unverified"
     business_name: Optional[str] = None
     business_category: Optional[str] = None
+    business_services: Optional[str] = None
     business_description: Optional[str] = None
     business_address: Optional[str] = None
     business_whatsapp: Optional[str] = None
