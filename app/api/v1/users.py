@@ -125,7 +125,7 @@ async def list_campus_stores(
             business_services=getattr(u, "business_services", None),
             business_description=u.business_description,
             business_address=u.business_address,
-            business_whatsapp=u.business_whatsapp,
+            business_whatsapp=normalize_nigerian_phone(u.business_whatsapp),
             business_instagram=u.business_instagram,
             campus_id=u.campus_id,
             campus_name=c_name,

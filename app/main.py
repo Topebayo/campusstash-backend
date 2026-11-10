@@ -119,28 +119,32 @@ async def lifespan(app: FastAPI):
                         UPDATE "user" 
                         SET business_whatsapp = '+234' || SUBSTRING(business_whatsapp FROM 2)
                         WHERE business_whatsapp LIKE '0%' AND LENGTH(REGEXP_REPLACE(business_whatsapp, '[^0-9]', '', 'g')) = 11;
-
+                    """))
+                    await session.execute(text("""
                         UPDATE "user" 
                         SET business_whatsapp = '+234' || SUBSTRING(business_whatsapp FROM 3)
                         WHERE business_whatsapp LIKE '+0%' AND LENGTH(REGEXP_REPLACE(business_whatsapp, '[^0-9]', '', 'g')) = 11;
-
+                    """))
+                    await session.execute(text("""
                         UPDATE "user" 
                         SET business_whatsapp = '+234' || SUBSTRING(REGEXP_REPLACE(business_whatsapp, '[^0-9]', '', 'g') FROM 5)
                         WHERE REGEXP_REPLACE(business_whatsapp, '[^0-9]', '', 'g') LIKE '2340%' AND LENGTH(REGEXP_REPLACE(business_whatsapp, '[^0-9]', '', 'g')) = 14;
-
+                    """))
+                    await session.execute(text("""
                         UPDATE "user" 
                         SET business_whatsapp = '+' || REGEXP_REPLACE(business_whatsapp, '[^0-9]', '', 'g')
                         WHERE REGEXP_REPLACE(business_whatsapp, '[^0-9]', '', 'g') LIKE '234%' 
                           AND LENGTH(REGEXP_REPLACE(business_whatsapp, '[^0-9]', '', 'g')) = 13
                           AND NOT business_whatsapp LIKE '+%';
-
+                    """))
+                    await session.execute(text("""
                         UPDATE "user" 
                         SET business_whatsapp = NULL
                         WHERE business_whatsapp LIKE '%@%';
                     """))
                     await session.commit()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"WhatsApp migration skipped or failed: {e}")
 
                 existing_res = await session.execute(select(Campus))
                 existing_campuses = {c.name.strip().lower(): c for c in existing_res.scalars().all()}

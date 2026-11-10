@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload, joinedload
 
 from pydantic import ValidationError
 from app.api.deps import get_db, get_current_active_user
+from app.api.v1.users import normalize_nigerian_phone
 from app.models.user import User
 from app.models.marketplace import Listing, ListingImage
 from app.schemas.marketplace import (
@@ -52,7 +53,7 @@ def format_listing_read(listing: Listing) -> ListingRead:
             business_services=getattr(listing.seller, "business_services", None),
             business_description=getattr(listing.seller, "business_description", None),
             business_address=getattr(listing.seller, "business_address", None),
-            business_whatsapp=getattr(listing.seller, "business_whatsapp", None),
+            business_whatsapp=normalize_nigerian_phone(getattr(listing.seller, "business_whatsapp", None)),
             business_instagram=getattr(listing.seller, "business_instagram", None),
         )
 
@@ -519,7 +520,7 @@ async def get_seller_storefront(
         business_services=getattr(seller, "business_services", None),
         business_description=getattr(seller, "business_description", None),
         business_address=getattr(seller, "business_address", None),
-        business_whatsapp=getattr(seller, "business_whatsapp", None),
+        business_whatsapp=normalize_nigerian_phone(getattr(seller, "business_whatsapp", None)),
         business_instagram=getattr(seller, "business_instagram", None),
     )
 
