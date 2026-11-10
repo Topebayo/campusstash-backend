@@ -9,6 +9,28 @@ logger = logging.getLogger(__name__)
 from sqlalchemy.orm import selectinload, joinedload
 
 from app.api.deps import get_db, get_current_active_user
+import re
+
+def normalize_nigerian_phone(phone: str | None) -> str | None:
+    if not phone:
+        return None
+    raw = str(phone).strip()
+    digits = re.sub(r'\D', '', raw)
+    if not digits:
+        return None
+    if digits.startswith('2340') and len(digits) == 14:
+        digits = '234' + digits[4:]
+    elif digits.startswith('0') and len(digits) == 11:
+        digits = '234' + digits[1:]
+    elif len(digits) == 10 and digits[0] in ('7', '8', '9'):
+        digits = '234' + digits
+    elif digits.startswith('234') and len(digits) == 13:
+        pass
+    else:
+        if len(digits) < 10 or len(digits) > 15 or digits.startswith('0'):
+            return None
+    return '+' + digits
+
 from app.models.user import User, PublicProfile
 from app.core import security
 from app.core.limiter import limiter
@@ -258,7 +280,7 @@ async def submit_store_kyc(
     current_user.business_services = payload.business_services.strip() if payload.business_services else None
     current_user.business_description = payload.business_description.strip() if payload.business_description else None
     current_user.business_address = payload.business_address.strip() if payload.business_address else None
-    current_user.business_whatsapp = payload.business_whatsapp.strip() if payload.business_whatsapp else None
+    current_user.business_whatsapp = normalize_nigerian_phone(payload.business_whatsapp)
     current_user.business_instagram = payload.business_instagram.strip().lstrip('@') if payload.business_instagram else None
 
     if user_type == "non_student":
@@ -382,7 +404,7 @@ async def update_user_me(
         current_user.business_address = user_in.business_address.strip() or None
 
     if user_in.business_whatsapp is not None:
-        current_user.business_whatsapp = user_in.business_whatsapp.strip() or None
+        current_user.business_whatsapp = normalize_nigerian_phone(user_in.business_whatsapp)
 
     if user_in.business_instagram is not None:
         current_user.business_instagram = user_in.business_instagram.strip().lstrip('@') or None
