@@ -18,6 +18,8 @@ def normalize_nigerian_phone(phone: str | None) -> str | None:
     digits = re.sub(r'\D', '', raw)
     if not digits:
         return None
+    if digits.startswith('00'):
+        digits = digits[2:]
     if digits.startswith('2340') and len(digits) == 14:
         digits = '234' + digits[4:]
     elif digits.startswith('0') and len(digits) == 11:
