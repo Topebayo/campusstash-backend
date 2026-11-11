@@ -77,6 +77,15 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS kyc_id_number VARCHAR(100);'))
                 await conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS kyc_selfie_url TEXT;'))
                 await conn.execute(text('ALTER TABLE "user" ALTER COLUMN kyc_id_card_url TYPE TEXT;'))
+
+                # Enforce Supabase Row-Level Security (RLS) on all public tables to prevent public PostgREST / anon exposure
+                tables_res = await conn.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = 'public';"))
+                for (tbl,) in tables_res.fetchall():
+                    try:
+                        await conn.execute(text(f'ALTER TABLE "{tbl}" ENABLE ROW LEVEL SECURITY;'))
+                    except Exception:
+                        pass
+                logger.info("Row-Level Security (RLS) enforced across all public schema tables.")
             except Exception:
                 try:
                     await conn.execute(text('ALTER TABLE user ADD COLUMN account_type VARCHAR(50) DEFAULT \'individual\';'))
