@@ -4,7 +4,8 @@ import base64
 from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Body, status, File, UploadFile, Form
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, func
+from sqlalchemy import select, or_, func, and_
+from app.models.campus import Campus
 from sqlalchemy.orm import selectinload, joinedload
 
 from pydantic import ValidationError
@@ -123,9 +124,30 @@ async def list_listings(
     """
     base_conditions = []
 
-    # Campus filter
+    # Campus filter (supports city-wide / metro coverage for multi-campus city sellers)
     if campus_id is not None:
-        base_conditions.append(Listing.campus_id == campus_id)
+        campus_stmt = select(Campus).where(Campus.id == campus_id)
+        campus_res = await db.execute(campus_stmt)
+        queried_campus = campus_res.scalar_one_or_none()
+
+        if queried_campus and queried_campus.state:
+            metro_stmt = select(Campus.id).where(func.lower(Campus.state) == func.lower(queried_campus.state))
+            metro_res = await db.execute(metro_stmt)
+            metro_ids = metro_res.scalars().all()
+
+            base_conditions.append(
+                or_(
+                    Listing.campus_id == campus_id,
+                    and_(
+                        Listing.campus_id.in_(metro_ids),
+                        Listing.seller_id.in_(
+                            select(User.id).where(User.is_city_wide == True)
+                        )
+                    )
+                )
+            )
+        else:
+            base_conditions.append(Listing.campus_id == campus_id)
 
     # Status filter
     if status and status.lower() != "all":

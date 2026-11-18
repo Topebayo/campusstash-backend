@@ -17,6 +17,7 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(50), unique=True, index=True, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_phone_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_city_wide: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     campus_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("campus.id", ondelete="SET NULL"), 
         nullable=True, 

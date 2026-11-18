@@ -3,7 +3,7 @@ import uuid
 from typing import Any, Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete, or_, desc
+from sqlalchemy import select, func, delete, or_, and_, desc
 
 logger = logging.getLogger(__name__)
 from sqlalchemy.orm import selectinload, joinedload
@@ -73,7 +73,26 @@ async def list_campus_stores(
     ]
 
     if campus_id:
-        conditions.append(User.campus_id == campus_id)
+        campus_stmt = select(Campus).where(Campus.id == campus_id)
+        campus_res = await db.execute(campus_stmt)
+        queried_campus = campus_res.scalar_one_or_none()
+
+        if queried_campus and queried_campus.state:
+            metro_stmt = select(Campus.id).where(func.lower(Campus.state) == func.lower(queried_campus.state))
+            metro_res = await db.execute(metro_stmt)
+            metro_ids = metro_res.scalars().all()
+
+            conditions.append(
+                or_(
+                    User.campus_id == campus_id,
+                    and_(
+                        User.is_city_wide == True,
+                        User.campus_id.in_(metro_ids)
+                    )
+                )
+            )
+        else:
+            conditions.append(User.campus_id == campus_id)
 
     if category and category.strip() and category.lower() != "all stores":
         conditions.append(User.business_category.ilike(f"%{category.strip()}%"))
@@ -132,6 +151,7 @@ async def list_campus_stores(
             campus_id=u.campus_id,
             campus_name=c_name,
             campus_acronym=c_acro,
+            is_city_wide=getattr(u, "is_city_wide", False),
             listings_count=len(active_items),
             sample_images=sample_imgs
         ))

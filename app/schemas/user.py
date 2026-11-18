@@ -73,6 +73,7 @@ class UserRead(BaseModel):
     phone: Optional[str] = None
     is_active: bool = True
     is_phone_verified: bool = False
+    is_city_wide: bool = False
     account_type: str = "individual"
     business_name: Optional[str] = None
     business_category: Optional[str] = None
@@ -169,6 +170,7 @@ class StoreSummary(BaseModel):
     campus_id: Optional[uuid.UUID] = None
     campus_name: Optional[str] = None
     campus_acronym: Optional[str] = None
+    is_city_wide: bool = False
     listings_count: int = 0
     sample_images: list[str] = []
 
